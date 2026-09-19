@@ -1,0 +1,8 @@
+# Training image: the exact Blackwell runtime the demo uses + fine-tuning extras.
+#   docker build -f deploy/docker/Dockerfile.train -t glm4voice-train-blackwell:0.1 .
+FROM glm4voice-runtime-blackwell:0.2
+COPY finetune/requirements.txt finetune/constraints.txt /tmp/ft/
+RUN pip install --no-cache-dir -r /tmp/ft/requirements.txt -c /tmp/ft/constraints.txt
+# Bucket support needs huggingface_hub>=1.x, which transformers 4.44 can't import -> isolated venv for the CLI.
+RUN python -m venv /opt/hfcli && /opt/hfcli/bin/pip install --no-cache-dir "huggingface_hub==1.27.0" \
+ && ln -s /opt/hfcli/bin/hf /usr/local/bin/hf

@@ -1,0 +1,5 @@
+# Extras on top of glm4voice-runtime-blackwell:0.2 (see deploy/image-pip-freeze.txt).
+peft==0.13.2
+speechbrain==1.0.3
+jiwer==3.0.5
+PyYAML>=6.0

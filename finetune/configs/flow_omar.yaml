@@ -1,0 +1,16 @@
+# Track B: full fine-tune of the GLM-4-Voice flow decoder (tokens -> mel) on Omar's voice.
+run_name: flow_omar
+seed: 1986
+lr: 3.0e-5
+min_lr_ratio: 0.1
+warmup_steps: 500
+total_steps: 30000
+freeze_embedding_steps: 6000     # keep the token embedding frozen early so content mapping doesn't drift
+max_frames_per_batch: 24000      # total mel frames per batch (~280 s of audio)
+grad_clip: 5.0
+amp: bf16
+log_every: 50
+eval_every: 1000
+save_every: 2000
+keep_checkpoints: 5
+render_clips: 6                  # val clips rendered to wav at every save (for listening)
