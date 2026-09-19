@@ -31,6 +31,9 @@ def main():
     report = {"model": a.model}
     for split in a.splits.split(","):
         ds = load_from_disk(str(WORK / "asr" / split))
+        if not len(ds):
+            L.info("%s: empty, skipped", split)
+            continue
         refs, hyps = [], []
         for i in range(0, len(ds), a.batch):
             b = ds[i:i + a.batch]
