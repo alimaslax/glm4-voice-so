@@ -7,7 +7,11 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SO_WORK="${SO_WORK:-/workspace/so-train}"
-STAGES=(download selftest prepare_somali prepare_omar tokenize_somali tokenize_omar build_sft resynth train_flow train_lora)
+# Order: MMS Somali ASR first, then Omar's voice (decoder), then the Somali LoRA on the 9B.
+STAGES=(download selftest prepare_somali
+        prepare_asr eval_asr_stock train_asr eval_asr_ft publish_asr
+        prepare_omar tokenize_omar resynth train_flow resynth_flow publish_flow
+        tokenize_somali build_sft train_lora)
 START="${1:-${STAGES[0]}}"
 mkdir -p "$SO_WORK/.done"
 started=0

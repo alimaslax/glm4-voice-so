@@ -35,6 +35,7 @@ def main():
     p.add_argument("--max-dur", type=float, default=12.0)
     p.add_argument("--flow", default=None, help="fine-tuned flow.pt (default: stock)")
     p.add_argument("--tag", default="stock")
+    p.add_argument("--asr-model", default=ASR_MODEL, help="judge; the fine-tuned MMS once train_asr has run")
     a = p.parse_args()
 
     import jiwer
@@ -51,8 +52,8 @@ def main():
     hift.load_state_dict(torch.load(DECODER_PATH / "hift.pt", map_location="cpu"))
     flow.cuda().eval(); hift.cuda().eval()
     tokm, fe = load_speech_tokenizer()
-    aproc = AutoProcessor.from_pretrained(ASR_MODEL, target_lang="som")
-    amod = Wav2Vec2ForCTC.from_pretrained(ASR_MODEL, target_lang="som", ignore_mismatched_sizes=True).cuda().eval()
+    aproc = AutoProcessor.from_pretrained(a.asr_model, target_lang="som")
+    amod = Wav2Vec2ForCTC.from_pretrained(a.asr_model, target_lang="som", ignore_mismatched_sizes=True).cuda().eval()
 
     @torch.no_grad()
     def asr(x, sr):
@@ -74,7 +75,7 @@ def main():
 
     norm = lambda s: " ".join("".join(ch for ch in s.lower() if ch.isalnum() or ch.isspace()).split())
     out = WORK / "resynth" / a.tag
-    report = {}
+    report = {"asr_judge": a.asr_model, "flow": a.flow or "stock"}
     import random
     rng = random.Random(a.seed)
     som = [(r, PROCESSED_DIR / r["audio"], r["start"], r["end"])
@@ -124,7 +125,8 @@ def main():
         L.info("%s: %s", name, json.dumps({k: v for k, v in report[name].items() if k != "examples"}))
     (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
     summary = [f"\n## Summary\n"] + [f"- **{n}**: MMS-som CER original {v['asr_cer_original']:.3f} -> resynth "
-                                     f"{v['asr_cer_resynth']:.3f} ({v['n']} clips)" for n, v in report.items()]
+                                     f"{v['asr_cer_resynth']:.3f} ({v['n']} clips)" for n, v in report.items()
+                                     if isinstance(v, dict)] + [f"- judge: `{a.asr_model}`, flow: `{a.flow or 'stock'}`"]
     (out / "README.md").write_text("\n".join(readme[:2] + summary + readme[2:]) + "\n")
     L.info("wrote %s", out / "report.json")
 

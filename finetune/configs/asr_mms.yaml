@@ -1,0 +1,23 @@
+# MMS-1b-all Somali ASR fine-tune on the Somali segments (finetune/prepare_asr.py).
+run_name: asr_mms
+base_model: facebook/mms-1b-all
+target_lang: som
+seed: 1234
+mode: full                  # full = all transformer layers + adapters + head (CNN feature encoder frozen)
+                            # adapter = only the Somali adapter layers + head (~2.2M params)
+train:
+  num_train_epochs: 3
+  max_steps: -1
+  per_device_train_batch_size: 16
+  gradient_accumulation_steps: 2
+  learning_rate: 3.0e-5     # use ~1e-3 for mode: adapter
+  warmup_steps: 500
+  lr_scheduler_type: linear
+  weight_decay: 0.0
+  logging_steps: 25
+  eval_steps: 1000
+  save_steps: 1000
+  save_total_limit: 3
+  dataloader_num_workers: 6
+max_dur: 20.0
+eval_samples: 1500

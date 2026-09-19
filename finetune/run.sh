@@ -9,8 +9,15 @@
 #   tokenize_somali Somali clips -> speech tokens                          (GPU)
 #   tokenize_omar   Omar clips   -> speech tokens + 22.05 kHz mels         (GPU)
 #   build_sft       Somali tokens -> ASR / TTS / dialogue SFT datasets     (CPU)
-#   resynth         go/no-go: tokenizer+decoder round trip, Whisper CER, mel-config check
+#   resynth         go/no-go: tokenizer+decoder round trip (stock decoder), MMS-som CER, A/B wavs
+#   prepare_asr     Somali segments -> 16 kHz audio + normalized text for MMS
+#   eval_asr_stock  CER/WER of stock facebook/mms-1b-all (som) on held-out episodes
+#   train_asr       fine-tune MMS-1b-all Somali on all segments
+#   eval_asr_ft     CER/WER of the fine-tuned MMS
+#   publish_asr     private HF repo lewenberg/mms-1b-somali (base commit, then fine-tune)
 #   train_flow      Track B: flow decoder fine-tune on Omar
+#   resynth_flow    same A/B check with the Omar flow (and the fine-tuned MMS as judge)
+#   publish_flow    private HF repo lewenberg/glm-4-voice-decoder-omar (base commit, then fine-tune)
 #   train_lora      Track A: bf16 LoRA on glm-4-voice-9b
 #   shell           interactive shell in the container
 # Paths (override via env): SO_DATA, SO_WORK, SO_MODELS. Secrets: .env at the repo root (HF_TOKEN).
@@ -25,6 +32,10 @@ export SO_MODELS="${SO_MODELS:-/workspace/glm-4-voice/models}"
 if [ -f "$REPO/.env" ]; then set -a; . "$REPO/.env"; set +a; fi
 export HF_TOKEN="${HF_TOKEN:-${HUGGINGFACE_TOKEN:-}}"
 
+# Judge for resynthesis checks: the fine-tuned MMS once it exists (container path == host path).
+ASR_JUDGE=facebook/mms-1b-all
+[ -d "$SO_WORK/runs/asr_mms/final" ] && ASR_JUDGE="$SO_WORK/runs/asr_mms/final"
+
 case "$STAGE" in
   download)        CMD=(bash download.sh) ;;
   selftest)        CMD=(python -u selftest.py) ;;
@@ -33,7 +44,15 @@ case "$STAGE" in
   tokenize_somali) CMD=(python -u tokenize_audio.py --corpus somali) ;;
   tokenize_omar)   CMD=(python -u tokenize_audio.py --corpus omar) ;;
   build_sft)       CMD=(python -u build_sft.py) ;;
-  resynth)         CMD=(python -u check_resynthesis.py) ;;
+  resynth)         CMD=(python -u check_resynthesis.py --asr-model "$ASR_JUDGE") ;;
+  prepare_asr)     CMD=(python -u prepare_asr.py) ;;
+  eval_asr_stock)  CMD=(python -u eval_asr.py --model facebook/mms-1b-all --tag stock) ;;
+  train_asr)       CMD=(python -u train_asr.py) ;;
+  eval_asr_ft)     CMD=(python -u eval_asr.py --model "$SO_WORK/runs/asr_mms/final" --tag finetuned) ;;
+  publish_asr)     CMD=(python -u publish_hf.py asr) ;;
+  resynth_flow)    CMD=(python -u check_resynthesis.py --flow "$SO_WORK/runs/flow_omar/latest/flow.pt"
+                        --tag flow_omar --asr-model "$ASR_JUDGE") ;;
+  publish_flow)    CMD=(python -u publish_hf.py flow) ;;
   train_flow)      CMD=(python -u train_flow.py) ;;
   train_lora)      CMD=(python -u train_lora.py) ;;
   shell)           CMD=(bash) ;;
