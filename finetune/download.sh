@@ -13,16 +13,17 @@ mkdir -p "$SO_DATA/transcripts" "$SO_DATA/processed"
 
 echo "== transcripts"
 hf buckets sync "$T" "$SO_DATA/transcripts" --format quiet
-echo "== omar"
-hf buckets sync "$P" "$SO_DATA/processed" --include "omar/*" --format quiet
+echo "== omar + clean.flac (in parallel)"
+hf buckets sync "$P" "$SO_DATA/processed" --include "omar/*" --format quiet &
+omar_pid=$!
 
-echo "== clean.flac for transcribed episodes"
 filter="$SO_DATA/.clean_flac.filter"
 ( cd "$SO_DATA/transcripts" && find . -path '*/diarized/transcripts.diarized.json' \
     | sed -E 's#^\./(.*)/diarized/transcripts\.diarized\.json$#+ \1/clean.flac#' | sort ) > "$filter"
 echo "- *" >> "$filter"
 echo "episodes: $(($(wc -l < "$filter") - 1))"
 hf buckets sync "$P" "$SO_DATA/processed" --filter-from "$filter" --format quiet
+wait "$omar_pid"
 
 echo "== summary"
 echo "transcripts: $(find "$SO_DATA/transcripts" -type f | wc -l) files"
