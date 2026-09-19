@@ -2,7 +2,9 @@
 
 For --n-somali random Somali segments and --n-omar random Omar clips (fixed seed, any split):
   audio -> speech tokens -> flow -> hift -> wav      (stock decoder, or --flow a fine-tuned flow.pt)
-  Whisper-large-v3-turbo (language=so) transcribes original and resynthesized audio; CER vs reference text.
+  MMS-1b-all with its Somali adapter (facebook/mms-1b-all, target_lang=som) transcribes original and
+  resynthesized audio; CER vs reference text. (Whisper-large-v3-turbo was tried first: it can't do Somali -
+  it answers in Arabic script / Spanish - so it is useless as a judge here.)
   For Omar: L1 between our 22.05 kHz mel (tokenize_audio.mel_22k) and the stock flow's mel for the same
   tokens. If MEL settings were wrong this is far larger than the Somali-vs-Omar voice difference.
 
@@ -21,7 +23,7 @@ from common import DECODER_PATH, OMAR_DIR, PROCESSED_DIR, WORK, load_audio, load
     read_jsonl, speech_tokens
 
 L = log("check_resynthesis")
-WHISPER = Path(os.environ.get("SO_WHISPER", "/workspace/models/whisper-large-v3-turbo"))
+ASR_MODEL = os.environ.get("SO_ASR_MODEL", "facebook/mms-1b-all")
 
 
 def main():
@@ -39,7 +41,7 @@ def main():
     import soundfile as sf
     import torchaudio.functional as AF
     from hyperpyyaml import load_hyperpyyaml
-    from transformers import WhisperForConditionalGeneration, WhisperProcessor
+    from transformers import AutoProcessor, Wav2Vec2ForCTC
     from tokenize_audio import mel_22k
 
     with open(DECODER_PATH / "config.yaml") as f:
@@ -49,14 +51,14 @@ def main():
     hift.load_state_dict(torch.load(DECODER_PATH / "hift.pt", map_location="cpu"))
     flow.cuda().eval(); hift.cuda().eval()
     tokm, fe = load_speech_tokenizer()
-    wproc = WhisperProcessor.from_pretrained(str(WHISPER))
-    wmod = WhisperForConditionalGeneration.from_pretrained(str(WHISPER), torch_dtype=torch.float16).cuda().eval()
+    aproc = AutoProcessor.from_pretrained(ASR_MODEL, target_lang="som")
+    amod = Wav2Vec2ForCTC.from_pretrained(ASR_MODEL, target_lang="som", ignore_mismatched_sizes=True).cuda().eval()
 
+    @torch.no_grad()
     def asr(x, sr):
         x = AF.resample(torch.from_numpy(x), sr, 16000).numpy()
-        f = wproc(x, sampling_rate=16000, return_tensors="pt").input_features.cuda().half()
-        ids = wmod.generate(f, language="so", task="transcribe", max_new_tokens=200)
-        return wproc.batch_decode(ids, skip_special_tokens=True)[0].strip()
+        f = aproc(x, sampling_rate=16000, return_tensors="pt").input_values.cuda()
+        return aproc.decode(amod(f).logits[0].argmax(-1)).strip()
 
     @torch.no_grad()
     def decode(tokens):
@@ -87,7 +89,7 @@ def main():
     for name, items in sources.items():
         (out / name).mkdir(parents=True, exist_ok=True)
         refs, hyp_orig, hyp_resyn, mel_l1 = [], [], [], []
-        readme.append(f"\n## {name}\n\n| # | file | reference text | Whisper on original | Whisper on resynth |\n|---|---|---|---|---|")
+        readme.append(f"\n## {name}\n\n| # | file | reference text | MMS-som on original | MMS-som on resynth |\n|---|---|---|---|---|")
         for k, (r, path, s, e) in enumerate(items):
             x, sr = load_audio(path, s, e)
             toks = speech_tokens(tokm, fe, [(x, sr)])[0]
@@ -118,7 +120,7 @@ def main():
                 frame_ratio=round(float(np.mean([m["frames_ours"] / m["frames_flow"] for m in mel_l1])), 3))
         L.info("%s: %s", name, json.dumps({k: v for k, v in report[name].items() if k != "examples"}))
     (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
-    summary = [f"\n## Summary\n"] + [f"- **{n}**: Whisper CER original {v['whisper_cer_original']:.3f} -> resynth "
+    summary = [f"\n## Summary\n"] + [f"- **{n}**: MMS-som CER original {v['whisper_cer_original']:.3f} -> resynth "
                                      f"{v['whisper_cer_resynth']:.3f} ({v['n']} clips)" for n, v in report.items()]
     (out / "README.md").write_text("\n".join(readme[:2] + summary + readme[2:]) + "\n")
     L.info("wrote %s", out / "report.json")
