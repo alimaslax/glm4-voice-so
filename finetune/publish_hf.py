@@ -2,6 +2,7 @@
 
   python publish_hf.py asr    # -> lewenberg/mms-1b-somali            (base: facebook/mms-1b-all + som adapter)
   python publish_hf.py flow   # -> lewenberg/glm-4-voice-decoder-omar (base: THUDM/glm-4-voice-decoder)
+  python publish_hf.py lora   # -> lewenberg/glm-4-voice-9b-somali-lora (base: pointer to THUDM/glm-4-voice-9b)
 
 The repo history then reads: base -> fine-tuned, so any result can be compared against the exact starting point.
 Re-running is safe: the base commit is only made once; the fine-tune commit is skipped if unchanged.
@@ -14,7 +15,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from common import DECODER_PATH, REPO, WORK, log
+from common import DECODER_PATH, LLM_PATH, REPO, WORK, log
 
 L = log("publish_hf")
 NS = os.environ.get("SO_HF_NAMESPACE", "lewenberg")
@@ -134,17 +135,65 @@ Reproduce: https://github.com/alimaslax/glm4-voice-so (commit `{git_rev()}`), `f
     L.info("published https://huggingface.co/%s", repo)
 
 
+def publish_lora(api, run):
+    repo = f"{NS}/glm-4-voice-9b-somali-lora"
+    api.create_repo(repo, private=True, exist_ok=True)
+
+    def base(d):
+        # The 9B weights (~18 GB) are not duplicated: the base commit pins the exact upstream model instead.
+        for f in LLM_PATH.iterdir():
+            if f.is_file() and f.suffix in (".json", ".py", ".model", ".txt") and "index" not in f.name:
+                shutil.copy(f, d / f.name)
+        (d / "README.md").write_text(card("GLM-4-Voice-9B Somali LoRA: base", """
+Base model: `THUDM/glm-4-voice-9b` (config/tokenizer/code copied here unmodified; weights not duplicated).
+The next commit adds the Somali LoRA adapter trained on top of it.
+"""))
+    ensure_base(api, repo, base, "base: THUDM/glm-4-voice-9b (config/tokenizer/code; weights by reference)")
+
+    run_dir = WORK / "runs" / run
+    final = run_dir / "final"
+    ckpts = sorted(run_dir.glob("checkpoint-*"), key=lambda p: int(p.name.split("-")[1]))
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        for f in final.iterdir():
+            if f.is_file() and f.name != "training_args.bin":
+                shutil.copy(f, d / f.name)
+        if ckpts and (ckpts[-1] / "trainer_state.json").exists():
+            (d / "eval").mkdir()
+            shutil.copy(ckpts[-1] / "trainer_state.json", d / "eval" / "trainer_state.json")
+        (d / "README.md").write_text(card("GLM-4-Voice-9B, Somali LoRA", f"""
+LoRA adapter (PEFT) for `THUDM/glm-4-voice-9b` (see tag `base`), trained in bf16 on Somali speech:
+ASR (speech -> Somali text), TTS-style (Somali text -> speech tokens) and speech dialogue pairs from
+Somali TV/podcast conversations. Config: `configs/lora_somali.yaml` in the repo below.
+Loss curves / per-task eval losses: `eval/trainer_state.json`.
+
+```python
+from transformers import AutoModel
+from peft import PeftModel
+base = AutoModel.from_pretrained("THUDM/glm-4-voice-9b", trust_remote_code=True, torch_dtype="bfloat16")
+model = PeftModel.from_pretrained(base, "{repo}")
+```
+
+Reproduce: https://github.com/alimaslax/glm4-voice-so (commit `{git_rev()}`), `finetune/run.sh train_lora`.
+"""))
+        api.upload_folder(repo_id=repo, folder_path=str(d), commit_message=f"fine-tune {run} (code {git_rev()})")
+    tag(api, repo, run, f"fine-tune {run}")
+    L.info("published https://huggingface.co/%s", repo)
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("what", choices=["asr", "flow"])
+    p.add_argument("what", choices=["asr", "flow", "lora"])
     p.add_argument("--run", default=None)
     a = p.parse_args()
     from huggingface_hub import HfApi
     api = HfApi(token=os.environ["HF_TOKEN"])
     if a.what == "asr":
         publish_asr(api, a.run or "asr_mms")
-    else:
+    elif a.what == "flow":
         publish_flow(api, a.run or "flow_omar")
+    else:
+        publish_lora(api, a.run or "lora_somali")
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ SO_WORK="${SO_WORK:-/workspace/so-train}"
 STAGES=(download selftest prepare_somali
         prepare_asr prepare_asr_ext eval_asr_stock train_asr eval_asr_ft publish_asr
         prepare_omar tokenize_omar resynth train_flow resynth_flow publish_flow
-        tokenize_somali build_sft train_lora)
+        tokenize_somali build_sft train_lora publish_lora)
 START="${1:-${STAGES[0]}}"
 mkdir -p "$SO_WORK/.done"
 started=0

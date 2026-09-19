@@ -26,6 +26,7 @@
 #   resynth_flow    same A/B check with the Omar flow (and the fine-tuned MMS as judge)
 #   publish_flow    private HF repo lewenberg/glm-4-voice-decoder-omar (base commit, then fine-tune)
 #   train_lora      Track A: bf16 LoRA on glm-4-voice-9b
+#   publish_lora    private HF repo lewenberg/glm-4-voice-9b-somali-lora (base pointer, then adapter)
 #   shell           interactive shell in the container
 # Paths (override via env): SO_DATA, SO_WORK, SO_MODELS. Secrets: .env at the repo root (HF_TOKEN, OPENROUTER_API_KEY).
 set -euo pipefail
@@ -73,6 +74,7 @@ case "$STAGE" in
   publish_flow)    CMD=(python -u publish_hf.py flow) ;;
   train_flow)      CMD=(python -u train_flow.py) ;;
   train_lora)      CMD=(python -u train_lora.py) ;;
+  publish_lora)    CMD=(python -u publish_hf.py lora) ;;
   shell)           CMD=(bash) ;;
   *) echo "unknown stage: $STAGE"; exit 2 ;;
 esac
