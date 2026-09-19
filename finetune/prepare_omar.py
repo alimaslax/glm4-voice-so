@@ -54,8 +54,11 @@ def main():
     L.info("candidates after transcript filters: %d (%s)", len(rows), dict(stats))
 
     # ECAPA speaker verification (speechbrain, 16 kHz)
-    from speechbrain.inference.speaker import EncoderClassifier
+    import torchaudio
     import torchaudio.functional as AF
+    if not hasattr(torchaudio, "list_audio_backends"):      # removed in torchaudio 2.9; speechbrain calls it
+        torchaudio.list_audio_backends = lambda: ["soundfile"]  # at import. We load audio ourselves.
+    from speechbrain.inference.speaker import EncoderClassifier
     enc = EncoderClassifier.from_hparams("speechbrain/spkrec-ecapa-voxceleb",
                                          savedir=str(WORK / "cache" / "ecapa"), run_opts={"device": "cuda"})
     embs = []
