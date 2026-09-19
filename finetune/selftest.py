@@ -32,7 +32,9 @@ def main():
             L.error("MISMATCH\n built=%s\n ref  =%s", built[:40], ref[:40])
     inter = g.interleave(list(range(30)), [1] * 60)
     ok &= inter[:13] == list(range(13)) and len(inter) == 90
-    ok &= g.audio([16383])[1] == g.audio_offset + 16383 < tok.vocab_size + 1024
+    import json
+    vocab = json.loads((LLM_PATH / "config.json").read_text())["padded_vocab_size"]
+    ok &= g.audio([16383])[1] == g.audio_offset + 16383 < vocab     # every codebook id has an embedding row
     L.info("user token id %d, audio offset %d, prefix %s", g.user_id, g.audio_offset, g.prefix)
     L.info("selftest %s", "PASSED" if ok else "FAILED")
     sys.exit(0 if ok else 1)
