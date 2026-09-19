@@ -3,6 +3,9 @@
 FROM glm4voice-runtime-blackwell:0.2
 COPY finetune/requirements.txt finetune/constraints.txt /tmp/ft/
 RUN pip install --no-cache-dir -r /tmp/ft/requirements.txt -c /tmp/ft/constraints.txt
+# The base ships torchvision 0.18 (built for torch 2.3) next to torch 2.9; transformers imports it for
+# Whisper's processor and dies on "torchvision::nms". Nothing here needs torchvision.
+RUN pip uninstall -y torchvision
 # Bucket support needs huggingface_hub>=1.x, which transformers 4.44 can't import -> isolated venv for the CLI.
 RUN python -m venv /opt/hfcli && /opt/hfcli/bin/pip install --no-cache-dir "huggingface_hub==1.27.0" \
  && ln -s /opt/hfcli/bin/hf /usr/local/bin/hf
