@@ -42,6 +42,11 @@ so re-running skips completed work. `FORCE=1` redoes from the given stage. Any s
 | `prepare_somali` | dedupes overlapping ASR segments, filters, builds speaker turns + dialogue pairs, splits by episode | `somali/manifest.jsonl`, `pairs.jsonl`, `stats.json` |
 | `prepare_asr` | Somali segments → 16 kHz int16 audio + normalized text (lowercase, no punctuation) | `asr/{train,val,test}` |
 | `prepare_asr_ext` | extra HF Somali ASR sets listed in `configs/asr_mms.yaml` (`extra_datasets`, pinned revisions) → same format; `ext_train` is mixed into training via `train_splits` | `asr/ext_{train,val,test}` |
+| `ss_plan` | single-speaker runs from the existing diarization (≥2 s, split at pauses to ≤20 s; `omar` skipped) | `single_speaker/plan.jsonl` |
+| `ss_transcribe` | each run sent once to MAI-Transcribe-2 via OpenRouter (same request as the window run; ~$0.10/h; needs `OPENROUTER_API_KEY` in `.env`) | `single_speaker/responses/` |
+| `ss_build` | keeps clips the API also hears as one speaker, Latin script, sane chars/sec; Somali word check recorded | `single_speaker/manifest.jsonl`, `stats.json` |
+| `ss_push` / `ss_pull` | transcripts only (no audio) ↔ private bucket `lewenberg/so-single-speaker-transcripts`; `ss_pull` avoids paying twice | — |
+| `prepare_asr_ss` | accepted single-speaker clips → MMS format, same episode split | `asr/ss_{train,val,test}` |
 | `eval_asr_stock` | CER/WER of stock MMS-som on held-out episodes | `eval_asr/stock.json` |
 | `train_asr` | MMS full CTC fine-tune (CNN frozen), keeps the best-CER checkpoint | `runs/asr_mms/final/` |
 | `eval_asr_ft` | CER/WER of the fine-tuned MMS | `eval_asr/finetuned.json` |
