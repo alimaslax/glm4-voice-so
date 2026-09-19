@@ -12,6 +12,8 @@
 #   resynth         go/no-go: tokenizer+decoder round trip (stock decoder), MMS-som CER, A/B wavs
 #   prepare_asr     Somali segments -> 16 kHz audio + normalized text for MMS
 #   prepare_asr_ext extra HF Somali ASR sets (configs/asr_mms.yaml extra_datasets) -> asr/ext_*
+#   scribe_transcribe  relabel the original windows with ElevenLabs Scribe v2 (som, diarized) -> scribe/
+#   scribe_push     loop: scribe/ -> bucket lewenberg/so-duplex-transcripts/scribe/ every 10 min (ONCE=1: one pass)
 #   ss_plan         single-speaker runs from the diarization -> single_speaker/plan.jsonl (+ projected cost)
 #   ss_transcribe   MAI-Transcribe-2 via OpenRouter (auto language, diarization), one request per clip
 #   ss_build        responses -> single_speaker/manifest.jsonl (single-voice + Latin-script checks)
@@ -30,7 +32,7 @@
 #   publish_lora    private HF repo lewenberg/glm-4-voice-9b-somali-lora (base pointer, then adapter)
 #   ckpt_sync       back up runs/ to private bucket lewenberg/so-train-checkpoints every 10 min (ckpt_pull restores)
 #   shell           interactive shell in the container
-# Paths (override via env): SO_DATA, SO_WORK, SO_MODELS. Secrets: .env at the repo root (HF_TOKEN, OPENROUTER_API_KEY).
+# Paths (override via env): SO_DATA, SO_WORK, SO_MODELS. Secrets: .env at the repo root (HF_TOKEN, OPENROUTER_API_KEY, ELEVENLABS_API_KEY).
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 STAGE="${1:?usage: finetune/run.sh <stage> [args]}"; shift || true
@@ -43,6 +45,7 @@ if [ -f "$REPO/.env" ]; then set -a; . "$REPO/.env"; set +a; fi
 export HF_TOKEN="${HF_TOKEN:-${HUGGINGFACE_TOKEN:-}}"
 export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-${OPEN_ROUTER:-}}"
 export OPENROUTER_API_KEY2="${OPENROUTER_API_KEY2:-${OPEN_ROUTER2:-}}"
+T_BUCKET="${T_BUCKET:-lewenberg/so-duplex-transcripts}"
 SS_BUCKET="${SS_BUCKET:-lewenberg/so-single-speaker-transcripts}"
 
 # Judge for resynthesis checks: the fine-tuned MMS once it exists (container path == host path).
@@ -60,6 +63,8 @@ case "$STAGE" in
   resynth)         CMD=(python -u check_resynthesis.py --asr-model "$ASR_JUDGE") ;;
   prepare_asr)     CMD=(python -u prepare_asr.py) ;;
   prepare_asr_ext) CMD=(python -u prepare_asr_ext.py) ;;
+  scribe_transcribe) CMD=(python -u scribe_windows.py) ;;     # [--workers N] [--limit N] [--retry-failed]
+  scribe_push)     CMD=(sh -c "while true; do hf buckets sync \$SO_WORK/scribe hf://buckets/$T_BUCKET/scribe --exclude '*.request.json' --exclude '*.tmp' --format quiet && echo \$(date -u +%FT%TZ) synced scribe; [ \"\${ONCE:-0}\" = 1 ] && break; sleep 600; done") ;;
   ss_plan)         CMD=(python -u single_speaker.py plan) ;;
   ss_transcribe)   CMD=(python -u single_speaker.py transcribe) ;;   # [--limit N] [--workers N] [--retry-failed]
   ss_build)        CMD=(python -u single_speaker.py build) ;;
@@ -85,7 +90,7 @@ case "$STAGE" in
 esac
 
 DOCKER=(docker run --rm --gpus all --ipc=host --network host --name "so-$STAGE"
-  -e HF_TOKEN -e ONCE -e CKPT_BUCKET -e CKPT_EVERY_MIN -e OPENROUTER_API_KEY -e OPENROUTER_API_KEY2 -e SO_DATA -e SO_WORK -e SO_MODELS -e HF_HOME=/workspace/cache -e PYTHONUNBUFFERED=1
+  -e HF_TOKEN -e ELEVENLABS_API_KEY -e SO_TRANSCRIPTS -e ONCE -e CKPT_BUCKET -e CKPT_EVERY_MIN -e OPENROUTER_API_KEY -e OPENROUTER_API_KEY2 -e SO_DATA -e SO_WORK -e SO_MODELS -e HF_HOME=/workspace/cache -e PYTHONUNBUFFERED=1
   -v /workspace:/workspace -w "$REPO/finetune")
 if [ "$STAGE" = shell ]; then exec "${DOCKER[@]}" -it "$IMAGE" bash; fi
 

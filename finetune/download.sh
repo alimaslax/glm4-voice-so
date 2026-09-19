@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pull training data from the HF buckets into $SO_DATA (idempotent: sync skips what's already there).
-#   transcripts : all of lewenberg/so-duplex-transcripts
+#   transcripts : lewenberg/so-duplex-transcripts mai/ (-> transcripts/) and scribe/ (-> transcripts_scribe/)
 #   omar        : only omar/ from lewenberg/so-duplex-processed
 #   clean.flac  : only the <channel>/<episode>/clean.flac that have a transcript (the windows are just
 #                 offsets into these files; no other processed files are downloaded)
@@ -11,8 +11,9 @@ T=hf://buckets/lewenberg/so-duplex-transcripts
 P=hf://buckets/lewenberg/so-duplex-processed
 mkdir -p "$SO_DATA/transcripts" "$SO_DATA/processed"
 
-echo "== transcripts"
-hf buckets sync "$T" "$SO_DATA/transcripts" --format quiet
+echo "== transcripts (mai/ = original MAI-Transcribe-2 labels; scribe/ = ElevenLabs Scribe v2 relabel, if present)"
+hf buckets sync "$T/mai" "$SO_DATA/transcripts" --format quiet
+hf buckets sync "$T/scribe" "$SO_DATA/transcripts_scribe" --format quiet 2>/dev/null || echo "   (no scribe/ yet)"
 echo "== omar + clean.flac (in parallel)"
 hf buckets sync "$P" "$SO_DATA/processed" --include "omar/*" --format quiet &
 omar_pid=$!

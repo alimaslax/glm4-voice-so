@@ -19,7 +19,7 @@ DATA = Path(os.environ.get("SO_DATA", "/workspace/so-data"))    # raw downloads 
 WORK = Path(os.environ.get("SO_WORK", "/workspace/so-train"))   # everything we generate
 MODELS = Path(os.environ.get("SO_MODELS", "/workspace/glm-4-voice/models"))
 
-TRANSCRIPTS_DIR = DATA / "transcripts"            # lewenberg/so-duplex-transcripts
+TRANSCRIPTS_DIR = Path(os.environ.get("SO_TRANSCRIPTS", DATA / "transcripts"))   # bucket mai/ (or scribe/ relabel)
 PROCESSED_DIR = DATA / "processed"                # lewenberg/so-duplex-processed (subset)
 OMAR_DIR = PROCESSED_DIR / "omar"
 
