@@ -17,12 +17,14 @@ echo "== omar + clean.flac (in parallel)"
 hf buckets sync "$P" "$SO_DATA/processed" --include "omar/*" --format quiet &
 omar_pid=$!
 
-filter="$SO_DATA/.clean_flac.filter"
+# Direct parallel copies: a --filter-from sync would fnmatch 522 patterns against all ~300k bucket files first.
+list="$SO_DATA/.clean_flac.list"
 ( cd "$SO_DATA/transcripts" && find . -path '*/diarized/transcripts.diarized.json' \
-    | sed -E 's#^\./(.*)/diarized/transcripts\.diarized\.json$#+ \1/clean.flac#' | sort ) > "$filter"
-echo "- *" >> "$filter"
-echo "episodes: $(($(wc -l < "$filter") - 1))"
-hf buckets sync "$P" "$SO_DATA/processed" --filter-from "$filter" --format quiet
+    | sed -E 's#^\./(.*)/diarized/transcripts\.diarized\.json$#\1/clean.flac#' | sort ) > "$list"
+echo "episodes: $(wc -l < "$list")"
+while read -r f; do [ -s "$SO_DATA/processed/$f" ] || echo "$f"; done < "$list" \
+  | xargs -P 16 -I{} sh -c 'mkdir -p "$(dirname "$0/{}")" && hf buckets cp "$1/{}" "$0/{}.part" --format quiet >/dev/null && mv "$0/{}.part" "$0/{}"' \
+      "$SO_DATA/processed" "$P"
 wait "$omar_pid"
 
 echo "== summary"
