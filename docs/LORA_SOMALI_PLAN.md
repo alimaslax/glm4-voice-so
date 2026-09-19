@@ -3,7 +3,7 @@
 Status: plan only, no training code yet.
 
 **Goal:** a GLM-4-Voice that understands and speaks Somali, **in Omar's voice**.
-- **Track A, language:** QLoRA on the 9B LLM using the multi-speaker Somali corpus (`transcripts/` + `so-duplex-processed/`, about 110 h, 5 channels).
+- **Track A, language:** bf16 LoRA on the 9B LLM using the multi-speaker Somali corpus (`transcripts/` + `so-duplex-processed/`, about 110 h, 5 channels).
 - **Track B, voice:** fine-tune the flow decoder on `~/hf/omar` (about 120 h, single speaker) so every generated audio token is rendered as Omar.
 
 The two tracks are independent: separate models, separate data, and they can run in parallel. They meet only at inference time.
@@ -49,12 +49,53 @@ The two tracks are independent: separate models, separate data, and they can run
   - Speaker IDs are per window (`0,1,2…`) and come from the transcriber, not from pyannote. Use the transcript speakers. They are **not** consistent across windows.
   - Very short backchannels ("Soco.", "Haa") and cross-talk.
 
-**Hardware reality**
-- The local machine is an Apple M5 with 24 GB RAM. It can't train: `speech_tokenizer/utils.py` hard-codes `.cuda()`, bitsandbytes 4-bit needs CUDA, and 9B at bf16 is 18 GB before activations.
-- Plan: **QLoRA (4-bit NF4 base + bf16 LoRA) on one rented CUDA GPU.**
-  - A 24 GB card (4090 / A10 / L4) works with gradient checkpointing and sequences of 2k or less.
-  - An A100 40/80 GB is faster and less fiddly.
-- Rough budget: about 20M training tokens per epoch (see §2). At ~2k tok/s on QLoRA that's about 3 h per epoch on an A100. Two epochs plus preprocessing come to **roughly $10–30 of GPU time**.
+**Hardware: the existing Verda GPU VM (one card is enough)**
+
+The local machine is an Apple M5 with 24 GB RAM. It can't train: `speech_tokenizer/utils.py` hard-codes `.cuda()`, bitsandbytes needs CUDA, and there's no CUDA on macOS. All GPU work runs on the VM described in `deploy/README.md`.
+
+| | |
+|---|---|
+| Host | `root@86.38.238.11` (`cold-bear-purrs-fin-02`), key `~/.ssh/verda_cpu_runner_20260830` |
+| GPU | 1× **NVIDIA RTX PRO 6000 Blackwell Server Edition, 96 GB VRAM**, 600 W, driver 580 / CUDA 13.0 |
+| CPU / RAM | 30 vCPU (AMD EPYC 9555) / 88 GB |
+| Disk | `/workspace` network volume: 196 GB, **~116 GB free** (as of 2026-09-19). Root disk: 145 GB, 59 GB free. |
+| Already on the volume | Weights in `/workspace/models/{glm-4-voice-9b,glm-4-voice-tokenizer,glm-4-voice-decoder}` (22 GB), repo copy in `/workspace/glm-4-voice`, Docker image tarball in `/workspace/migration` (30 GB) |
+| Docker image | `glm4voice-runtime-blackwell:0.2`: torch 2.9.1+cu128, torchaudio 2.9.1, transformers 4.44.1, bitsandbytes 0.50.2, accelerate 1.15.0, deepspeed 0.14.2, datasets 2.18.0. **No `peft`** (must be added). |
+
+**Before training, stop the demo.** The `glm4voice` container (`model_server.py` INT4 + `orb_demo.py`, about 12.7 GB VRAM) holds the GPU. It was stopped on 2026-09-19 with `docker stop glm4voice`. Its restart policy is `unless-stopped`, so it stays down across reboots until `/workspace/migration/start-glm.sh` is run again. Don't run the demo and training at the same time.
+
+**Is one card enough? Yes, with plenty of headroom.**
+
+| Job | VRAM | Time (estimate) |
+|---|---|---|
+| Track A: **bf16 LoRA** on the 9B (no 4-bit needed): 18 GB weights + LoRA/optimizer + activations at 2k seq with gradient checkpointing | ~40–50 GB | ~3–6 h per epoch, **~6–12 h for 2 epochs** |
+| Track B: flow decoder full fine-tune (~100M params) | <20 GB | a few hours for 20–50k steps |
+| Tokenizing both corpora (Whisper-VQ + Omar mels) | <10 GB | <1 h |
+
+- Throughput estimate: about 20M tokens/epoch × ~6·9B FLOPs/token (forward + backward + checkpoint recompute; frozen base weights) ≈ 1.1e18 FLOPs, at ~100 TFLOPS effective bf16.
+- With 96 GB, **QLoRA isn't needed**. Plain bf16 LoRA gives better quality and is faster (no 4-bit dequant overhead). Keep QLoRA only as the fallback if this ever moves to a 24 GB card.
+- Tracks A and B fit on the card at the same time (~70 GB total), but running them one after another is simpler and avoids fighting over compute.
+- **Total: about one day of GPU time.**
+
+**Disk budget (the real constraint)**
+- The full `so-duplex-processed` tree is 157 GB and **does not fit** in the 116 GB free. Don't copy it.
+- Only the transcribed segments are needed:
+
+| Data | Size |
+|---|---|
+| Track A segment audio (110 h, 24 kHz, 16-bit mono) | ~19 GB |
+| Omar clips with transcripts (already uploaded to `hf://buckets/lewenberg/so-duplex-processed/omar/`) | 11.5 GB |
+| Omar mels (120 h × 86 frames/s × 80 bins, fp16) | ~6 GB |
+| Audio tokens + SFT datasets | <1 GB |
+| Checkpoints (LoRA adapters ~0.3 GB each; flow ~0.4 GB each), keep the last ~5 of each | ~4 GB |
+
+- Better: **stream audio from the HF bucket, tokenize, and keep only tokens and mels**. Raw audio then never has to sit on the VM.
+- Clean up old artifacts in `/workspace/migration` (`docker-images.tar.zst`, the old INT4 image) only if space runs short, and only after confirming with the user.
+
+**Software on the VM**
+- Train inside the existing `glm4voice-runtime-blackwell:0.2` image, since Blackwell needs torch ≥ 2.7 with cu128. The upstream torch 2.3 pins in `requirements.txt` **cannot** run on this GPU.
+- Add on top: `peft` (a version compatible with transformers 4.44.1, e.g. 0.12–0.13), `jiwer`, `speechbrain`, `pyloudnorm`. Either `pip install` in a derived image `glm4voice-train-blackwell:0.1`, or install at container start.
+- Mount `/workspace` into the container as the demo does. Outputs go to `/workspace/glm-4-voice/outputs/`.
 
 ## 1. Step zero — go/no-go on the audio stack
 
@@ -105,7 +146,7 @@ The audio tokens are mostly content with little timbre (the flow sets timbre), s
    - Loads each segment slice from `clean.flac` (24 kHz, resampled to 16 kHz inside `extract_speech_token`).
    - Batches through `WhisperVQEncoder` and writes `audio_tokens: [int]` into `data/somali/tokens_*.jsonl` (or Arrow).
    - One pass over 110 h is minutes to tens of minutes on one GPU.
-   - Only the segment slices plus manifests get uploaded to the GPU box, not the 157 GB processed tree. Alternatively, tokenize while streaming from the HF bucket `lewenberg/so-duplex-processed`.
+   - Don't copy the 157 GB processed tree to the VM (only ~116 GB free). Stream each needed `clean.flac` from `hf://buckets/lewenberg/so-duplex-processed`, cut the segments, tokenize, keep the tokens, and discard the audio.
 3. **`build_samples.py`**
    - Turns the tokenized segments and pairs into final samples per §2: `input_ids`, `labels`, `task`.
    - Truncates or drops anything over `max_len` (2048).
@@ -132,8 +173,9 @@ The audio tokens are mostly content with little timbre (the flow sets timbre), s
 ## 4. Training (new code, `finetune/`)
 
 **`train_lora.py`** uses HF `Trainer` and PEFT:
-- Base: `THUDM/glm-4-voice-9b`, `load_in_4bit` NF4 + double quant, bf16 compute (reuse the `BitsAndBytesConfig` already in `model_server.py`).
-- `prepare_model_for_kbit_training`, `gradient_checkpointing_enable()`, `enable_input_require_grads()`.
+- Base: `/workspace/models/glm-4-voice-9b` loaded in **bf16** (96 GB card, so no quantization).
+  - `--qlora` flag as a fallback for small GPUs: NF4 + double quant, reusing the `BitsAndBytesConfig` in `model_server.py`, plus `prepare_model_for_kbit_training`.
+- `gradient_checkpointing_enable()`, `enable_input_require_grads()`.
 - LoRA settings:
   - `r=64`, `alpha=128`, `dropout=0.05`. Higher rank than usual because this is a new language plus a new text↔audio mapping, not a style tweak.
   - `target_modules=["query_key_value","dense","dense_h_to_4h","dense_4h_to_h"]` (ChatGLM naming; confirm by printing `named_modules()`).
@@ -158,7 +200,7 @@ The audio tokens are mostly content with little timbre (the flow sets timbre), s
   - Keep `training_cfg_rate: 0.2`: classifier-free guidance at inference (`inference_cfg_rate: 0.7`) relies on it.
   - Train with random prompt-prefix masking (`only_mask_loss: True` already supports it). This is required because `stream_inference` feeds the previous chunk's tokens and mel as the prompt, so the model must handle both "no prompt" and "Omar prompt".
 - AdamW, LR 1e-5 → 5e-5 with warmup, bf16, and **fp32 for the ODE solver/mel**. Batch by total frames.
-- 1 GPU (24 GB is enough), about 20–50k steps. Checkpoint every 2k steps, and generate the same 10 eval sentences each time for listening.
+- Runs on the same RTX PRO 6000 (<20 GB), about 20–50k steps. Checkpoint every 2k steps, and generate the same 10 eval sentences each time for listening.
 - **HiFT vocoder** stays frozen at first, since HiFT generalizes across speakers well. Only fine-tune it if Omar's timbre has buzzy or metallic artifacts. That needs the HiFiGAN discriminators and adversarial losses, which this repo doesn't include (`cosyvoice/hifigan` is generator-only), so it would come from upstream CosyVoice. Treat it as a stretch goal.
 - Output: `outputs/flow_omar/flow.pt`. It's a drop-in replacement for `glm-4-voice-decoder/flow.pt`.
 - Streaming: the flow trains on whole clips, while inference uses chunked prompt/overlap (`token_overlap_len`, `fade_in_out`). Test streaming with the same `block_size_list` as `web_demo.py` to catch chunk-boundary artifacts.
@@ -185,7 +227,9 @@ The audio tokens are mostly content with little timbre (the flow sets timbre), s
 | `model_server.py` | Add a `--lora-path` arg. After loading, `PeftModel.from_pretrained(glm_model, lora_path)`. For bf16, optionally `merge_and_unload()`. For int4, keep the adapter unmerged. |
 | `web_demo.py` | Add `--flow-path` (defaults to the stock `flow.pt`; point it at `outputs/flow_omar/flow.pt`) and an optional Somali system prompt. |
 | `speech_tokenizer/utils.py` | Replace hard-coded `.cuda()` with a `device` param (default `cuda`) so data prep can also run on `mps`/CPU for small tests. |
-| `requirements.txt` → new `requirements-train.txt` | Pinned versions compatible with `transformers==4.44.1` / `torch==2.3.0`: `peft` (~0.12), `bitsandbytes` (~0.43), `accelerate` (~0.33), `datasets`, `jiwer`, `speechbrain` (speaker verification), `pyloudnorm`. |
+| new `requirements-train.txt` | Extras on top of the `glm4voice-runtime-blackwell:0.2` image (torch 2.9.1+cu128, transformers 4.44.1, bitsandbytes 0.50.2, accelerate 1.15.0): `peft` (0.12–0.13), `jiwer`, `speechbrain` (speaker verification), `pyloudnorm`. Don't use the upstream torch 2.3 pins, which fail on Blackwell. |
+| new `deploy/docker/Dockerfile.train` | `FROM glm4voice-runtime-blackwell:0.2` + `pip install -r requirements-train.txt` → `glm4voice-train-blackwell:0.1`. |
+| new `deploy/start-train.sh` | Stops the `glm4voice` demo container if running, then launches the training container with `/workspace` mounted and `--gpus all`. |
 | `.gitignore` | `data/`, `outputs/`, `*.safetensors` |
 | `README.md` | Short "Somali LoRA" section: prep, train, and serve commands. |
 
@@ -209,7 +253,7 @@ finetune/
 
 ## 7. Order of work
 
-1. Write `check_resynthesis.py`, rent a GPU, and listen to Somali plus Omar resynthesis. **Go/no-go.**
+1. Write `check_resynthesis.py`. On the VM (demo stopped), listen to Somali plus Omar resynthesis. **Go/no-go.**
 2. Local, CPU, in parallel:
    - `prepare_manifest.py` (Track A)
    - `prepare_omar.py` with speaker filtering (Track B)
