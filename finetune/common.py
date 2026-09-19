@@ -80,8 +80,8 @@ def load_audio(path, start=None, end=None):
 
 def load_speech_tokenizer():
     from transformers import WhisperFeatureExtractor
-    from speech_tokenizer.utils import load_quantize_encoder
-    model = load_quantize_encoder(str(TOKENIZER_PATH))
+    from speech_tokenizer.modeling_whisper import WhisperVQEncoder
+    model = WhisperVQEncoder.from_pretrained(str(TOKENIZER_PATH)).eval().cuda()   # same as the demos
     fe = WhisperFeatureExtractor.from_pretrained(str(TOKENIZER_PATH))
     return model, fe
 
