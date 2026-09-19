@@ -80,13 +80,16 @@ def main():
     som = [(r, PROCESSED_DIR / r["audio"], r["start"], r["end"])
            for r in read_jsonl(WORK / "somali" / "manifest.jsonl")
            if r["kind"] == "segment" and a.min_dur <= r["end"] - r["start"] <= a.max_dur]
-    om = [(r, OMAR_DIR / r["audio"], None, None)
-          for r in read_jsonl(WORK / "omar" / "manifest.jsonl") if a.min_dur <= r["dur"] <= a.max_dur + 3]
+    om_manifest = WORK / "omar" / "manifest.jsonl"
+    om = [(r, OMAR_DIR / r["audio"], None, None) for r in read_jsonl(om_manifest)
+          if a.min_dur <= r["dur"] <= a.max_dur + 3] if a.n_omar and om_manifest.exists() else []
     sources = {"somali": rng.sample(som, min(a.n_somali, len(som))),
                "omar": rng.sample(om, min(a.n_omar, len(om)))}
     readme = ["# Resynthesis check (%s decoder)\n" % a.tag,
               "`*.ab.wav`: original, short pause, then the same audio after speech tokenizer -> flow -> HiFT.\n"]
     for name, items in sources.items():
+        if not items:
+            continue
         (out / name).mkdir(parents=True, exist_ok=True)
         refs, hyp_orig, hyp_resyn, mel_l1 = [], [], [], []
         readme.append(f"\n## {name}\n\n| # | file | reference text | MMS-som on original | MMS-som on resynth |\n|---|---|---|---|---|")
