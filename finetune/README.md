@@ -42,7 +42,7 @@ so re-running skips completed work. `FORCE=1` redoes from the given stage. Any s
 | `prepare_omar` | single-speaker clips, ECAPA speaker verification against Omar's centroid | `omar/manifest.jsonl`, `rejected.jsonl`, `stats.json` |
 | `tokenize_somali` / `tokenize_omar` | Whisper-VQ speech tokens; Omar also 22.05 kHz mels | `somali/tokens/`, `omar/feats/` |
 | `build_sft` | ASR / TTS / dialogue samples in GLM-4-Voice chat format | `somali/sft/{train,val,test}` |
-| `resynth` | go/no-go: token→decoder round trip, Whisper CER, mel-setting check | `resynth/stock/report.json` + wavs |
+| `resynth` | go/no-go: 50 random Somali + 20 Omar clips through tokenizer→decoder, MMS-som CER, A/B wavs, mel-setting check | `resynth/stock/report.json` + wavs |
 | `train_flow` | Track B | `runs/flow_omar/` |
 | `train_lora` | Track A | `runs/lora_somali/` |
 

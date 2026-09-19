@@ -109,8 +109,8 @@ def main():
                                    frames_ours=len(m), frames_flow=len(mel_gen)))
         report[name] = dict(
             n=len(items),
-            whisper_cer_original=round(jiwer.cer(refs, hyp_orig), 4),
-            whisper_cer_resynth=round(jiwer.cer(refs, hyp_resyn), 4),
+            asr_cer_original=round(jiwer.cer(refs, hyp_orig), 4),
+            asr_cer_resynth=round(jiwer.cer(refs, hyp_resyn), 4),
             examples=[dict(ref=r_, orig=o, resynth=h) for r_, o, h in list(zip(refs, hyp_orig, hyp_resyn))[:5]])
         if mel_l1:
             report[name]["mel_check"] = dict(
@@ -120,8 +120,8 @@ def main():
                 frame_ratio=round(float(np.mean([m["frames_ours"] / m["frames_flow"] for m in mel_l1])), 3))
         L.info("%s: %s", name, json.dumps({k: v for k, v in report[name].items() if k != "examples"}))
     (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
-    summary = [f"\n## Summary\n"] + [f"- **{n}**: MMS-som CER original {v['whisper_cer_original']:.3f} -> resynth "
-                                     f"{v['whisper_cer_resynth']:.3f} ({v['n']} clips)" for n, v in report.items()]
+    summary = [f"\n## Summary\n"] + [f"- **{n}**: MMS-som CER original {v['asr_cer_original']:.3f} -> resynth "
+                                     f"{v['asr_cer_resynth']:.3f} ({v['n']} clips)" for n, v in report.items()]
     (out / "README.md").write_text("\n".join(readme[:2] + summary + readme[2:]) + "\n")
     L.info("wrote %s", out / "report.json")
 
