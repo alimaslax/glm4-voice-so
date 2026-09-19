@@ -66,7 +66,10 @@ def main():
         model.load_adapter(cfg["target_lang"])       # re-load the pretrained Somali adapter as the start point
     L.info("trainable params: %d", sum(x.numel() for x in model.parameters() if x.requires_grad))
 
-    train = load_from_disk(str(WORK / "asr" / "train")).filter(lambda r: r["dur"] <= cfg["max_dur"])
+    from datasets import concatenate_datasets
+    parts = [load_from_disk(str(WORK / "asr" / s)) for s in cfg.get("train_splits", ["train"])
+             if (WORK / "asr" / s).exists()]
+    train = concatenate_datasets([x for x in parts if len(x)]).filter(lambda r: r["dur"] <= cfg["max_dur"])
     val = load_from_disk(str(WORK / "asr" / "val"))
     val = val.shuffle(seed=0).select(range(min(cfg["eval_samples"], len(val)))) if len(val) else None
     L.info("train %d clips (%.1f h), val %s", len(train), sum(train["dur"]) / 3600, len(val) if val else 0)

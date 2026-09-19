@@ -11,6 +11,7 @@
 #   build_sft       Somali tokens -> ASR / TTS / dialogue SFT datasets     (CPU)
 #   resynth         go/no-go: tokenizer+decoder round trip (stock decoder), MMS-som CER, A/B wavs
 #   prepare_asr     Somali segments -> 16 kHz audio + normalized text for MMS
+#   prepare_asr_ext extra HF Somali ASR sets (configs/asr_mms.yaml extra_datasets) -> asr/ext_*
 #   eval_asr        CER/WER of any model: --model <hf id or dir> --tag <name> [--splits test,val]
 #   eval_asr_stock  CER/WER of stock facebook/mms-1b-all (som) on held-out episodes
 #   train_asr       fine-tune MMS-1b-all Somali on all segments
@@ -47,6 +48,7 @@ case "$STAGE" in
   build_sft)       CMD=(python -u build_sft.py) ;;
   resynth)         CMD=(python -u check_resynthesis.py --asr-model "$ASR_JUDGE") ;;
   prepare_asr)     CMD=(python -u prepare_asr.py) ;;
+  prepare_asr_ext) CMD=(python -u prepare_asr_ext.py) ;;
   eval_asr)        CMD=(python -u eval_asr.py) ;;                 # ad hoc: --model ... --tag ...
   eval_asr_stock)  CMD=(python -u eval_asr.py --model facebook/mms-1b-all --tag stock) ;;
   train_asr)       CMD=(python -u train_asr.py) ;;

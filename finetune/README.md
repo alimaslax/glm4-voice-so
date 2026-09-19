@@ -41,6 +41,7 @@ so re-running skips completed work. `FORCE=1` redoes from the given stage. Any s
 | `selftest` | checks our prompt ids == the demo's string tokenization | — |
 | `prepare_somali` | dedupes overlapping ASR segments, filters, builds speaker turns + dialogue pairs, splits by episode | `somali/manifest.jsonl`, `pairs.jsonl`, `stats.json` |
 | `prepare_asr` | Somali segments → 16 kHz int16 audio + normalized text (lowercase, no punctuation) | `asr/{train,val,test}` |
+| `prepare_asr_ext` | extra HF Somali ASR sets listed in `configs/asr_mms.yaml` (`extra_datasets`, pinned revisions) → same format; `ext_train` is mixed into training via `train_splits` | `asr/ext_{train,val,test}` |
 | `eval_asr_stock` | CER/WER of stock MMS-som on held-out episodes | `eval_asr/stock.json` |
 | `train_asr` | MMS full CTC fine-tune (CNN frozen), keeps the best-CER checkpoint | `runs/asr_mms/final/` |
 | `eval_asr_ft` | CER/WER of the fine-tuned MMS | `eval_asr/finetuned.json` |

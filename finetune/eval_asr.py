@@ -20,7 +20,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", default="facebook/mms-1b-all")
     p.add_argument("--tag", default="stock")
-    p.add_argument("--splits", default="test,val")
+    p.add_argument("--splits", default="test,val,ext_test")
     p.add_argument("--batch", type=int, default=16)
     a = p.parse_args()
     import jiwer
@@ -30,6 +30,9 @@ def main():
     model = Wav2Vec2ForCTC.from_pretrained(a.model, target_lang="som", ignore_mismatched_sizes=True).cuda().eval()
     report = {"model": a.model}
     for split in a.splits.split(","):
+        if not (WORK / "asr" / split).exists():
+            L.info("%s: missing, skipped", split)
+            continue
         ds = load_from_disk(str(WORK / "asr" / split))
         if not len(ds):
             L.info("%s: empty, skipped", split)
