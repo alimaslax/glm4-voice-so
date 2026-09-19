@@ -13,7 +13,10 @@ def main():
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(str(LLM_PATH), trust_remote_code=True)
     g = GLMFormat(tok)
-    audio = [5, 16383, 0, 42]
+    # The tokenizer only has string tokens <|audio_0|>..<|audio_16382|>; codebook id 16383 exists only as
+    # embedding row audio_offset+16383. So compare against string tokenization inside that range, and
+    # build ids arithmetically (as the demo decodes them) everywhere.
+    audio = [5, 16382, 0, 42]
     audio_str = "<|begin_of_audio|>" + "".join(f"<|audio_{x}|>" for x in audio) + "<|end_of_audio|>"
     cases = [
         (g.prompt(SPEECH_SYSTEM, g.audio(audio)),
@@ -29,6 +32,7 @@ def main():
             L.error("MISMATCH\n built=%s\n ref  =%s", built[:40], ref[:40])
     inter = g.interleave(list(range(30)), [1] * 60)
     ok &= inter[:13] == list(range(13)) and len(inter) == 90
+    ok &= g.audio([16383])[1] == g.audio_offset + 16383 < tok.vocab_size + 1024
     L.info("user token id %d, audio offset %d, prefix %s", g.user_id, g.audio_offset, g.prefix)
     L.info("selftest %s", "PASSED" if ok else "FAILED")
     sys.exit(0 if ok else 1)
