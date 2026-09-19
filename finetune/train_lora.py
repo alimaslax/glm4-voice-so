@@ -11,7 +11,7 @@ from pathlib import Path
 import torch
 import yaml
 
-from common import LLM_PATH, WORK, log
+from common import allow_trainer_resume, LLM_PATH, WORK, log
 
 L = log("train_lora")
 
@@ -112,6 +112,7 @@ def main():
     trainer = build_trainer_cls()(model=model, args=args, train_dataset=train, eval_dataset=evals or None,
                                   data_collator=Collator(tok.pad_token_id))
     has_ckpt = any(out_dir.glob("checkpoint-*"))
+    allow_trainer_resume()
     trainer.train(resume_from_checkpoint=True if has_ckpt else None)
     trainer.save_model(str(out_dir / "final"))
     tok.save_pretrained(str(out_dir / "final"))

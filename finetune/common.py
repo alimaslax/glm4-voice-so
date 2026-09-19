@@ -52,6 +52,16 @@ def split_of(key, val=0.03, test=0.02):
     return "test" if h < test else "val" if h < test + val else "train"
 
 
+def allow_trainer_resume():
+    """torch>=2.6 loads with weights_only=True, but transformers 4.44 pickles the RNG state (numpy arrays)
+    into every checkpoint -> resume fails. Allowlist exactly those numpy types (our own checkpoints)."""
+    import numpy as np
+    import torch
+    torch.serialization.add_safe_globals(
+        [np.core.multiarray._reconstruct, np.ndarray, np.dtype]
+        + [type(np.dtype(t)) for t in ("u1", "u4", "i4", "i8", "f4", "f8", "bool")])
+
+
 def read_jsonl(path):
     with open(path) as f:
         return [json.loads(l) for l in f if l.strip()]

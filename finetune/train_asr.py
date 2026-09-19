@@ -12,7 +12,7 @@ import numpy as np
 import torch
 import yaml
 
-from common import WORK, log
+from common import allow_trainer_resume, WORK, log
 
 L = log("train_asr")
 
@@ -101,6 +101,7 @@ def main():
     trainer = Trainer(model=model, args=args, train_dataset=train, eval_dataset=val, data_collator=Collator(proc),
                       compute_metrics=metrics,
                       preprocess_logits_for_metrics=lambda logits, labels: logits.argmax(-1))
+    allow_trainer_resume()
     trainer.train(resume_from_checkpoint=True if any(out_dir.glob("checkpoint-*")) else None)
     final = out_dir / "final"
     trainer.save_model(str(final))
