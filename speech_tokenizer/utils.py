@@ -4,6 +4,7 @@ import glob
 import math
 import tarfile
 import torch
+import soundfile as sf
 import torchaudio
 import safetensors
 from .configuration_whisper import WhisperVQConfig
@@ -44,7 +45,8 @@ def extract_speech_token(model: WhisperVQEncoder, feature_extractor: WhisperFeat
             if isinstance(utt, tuple):
                 audio, sample_rate = utt
             else:
-                audio, sample_rate = torchaudio.load(utt)
+                data, sample_rate = sf.read(utt, dtype="float32", always_2d=True)
+                audio = torch.from_numpy(data.T.copy())
             audio = audio.cuda()
             if sample_rate != 16000:
                 if sample_rate not in _resample_buffer:

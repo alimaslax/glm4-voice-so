@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GLM Voice</title>
+<style>
+  :root {
+    --bg: #0b0c10; --fg: #f2f4f8; --dim: #7d8594; --line: #1d212b; --panel: #12141b;
+    --accent: #7cc4ff;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f6f7fa; --fg: #14161c; --dim: #6b7280; --line: #dfe2ea; --panel: #ffffff; --accent: #2f7de1; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; overflow: hidden; }
+  canvas#orb { position: fixed; inset: 0; width: 100%; height: 100%; }
+  #hud { position: fixed; top: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between;
+    align-items: flex-start; gap: 16px; font-size: 13px; color: var(--dim); pointer-events: none; }
+  #status { display: flex; align-items: center; gap: 8px; }
+  #dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); transition: background .2s; }
+  #metrics { text-align: right; font-variant-numeric: tabular-nums; line-height: 1.5; }
+  #metrics b { color: var(--fg); font-weight: 600; }
+  #captions { position: fixed; left: 50%; transform: translateX(-50%); width: min(720px, calc(100% - 32px));
+    top: calc(50% + min(19vh, 170px)); bottom: 84px; overflow: hidden; text-align: center;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px); mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
+    display: flex; flex-direction: column; gap: 10px; }
+  #you { color: var(--dim); font-size: 18px; min-height: 1.4em; }
+  #bot { font-size: 21px; font-weight: 500; min-height: 1.4em; }
+  .w { display: inline-block; animation: wIn .28s ease-out both; white-space: pre-wrap; }
+  @keyframes wIn { from { opacity: 0; transform: translateY(8px) scale(.96); filter: blur(3px); }
+                   to { opacity: 1; transform: none; filter: none; } }
+  #bar { position: fixed; left: 0; right: 0; bottom: max(20px, env(safe-area-inset-bottom)); display: flex;
+    justify-content: center; gap: 12px; }
+  button { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 999px; padding: 10px 18px; cursor: pointer; transition: background .15s, transform .1s; }
+  button:hover { background: var(--line); }
+  button:active { transform: scale(.97); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.off { color: var(--dim); text-decoration: line-through; }
+  #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 14px; background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: blur(8px); z-index: 10; text-align: center; padding: 24px; }
+  #overlay h1 { margin: 0; font-size: 26px; font-weight: 600; }
+  #overlay p { margin: 0; color: var(--dim); max-width: 420px; }
+  #overlay button { background: var(--fg); color: var(--bg); border: 0; padding: 14px 30px; font-size: 17px; font-weight: 600; }
+  .panel { position: fixed; top: 0; bottom: 0; width: min(380px, 100%); background: var(--panel);
+    border-left: 1px solid var(--line); padding: 20px; overflow-y: auto; z-index: 5;
+    transform: translateX(105%); transition: transform .25s ease; right: 0; }
+  .panel.open { transform: none; }
+  .panel h2 { margin: 0 0 14px; font-size: 15px; }
+  .row { display: grid; gap: 4px; margin-bottom: 16px; font-size: 13px; color: var(--dim); }
+  .row label { display: flex; justify-content: space-between; }
+  .row output { color: var(--fg); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  input[type=text] { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--fg); font: inherit; }
+  .msg { margin-bottom: 14px; font-size: 14px; }
+  .msg small { display: block; color: var(--dim); font-size: 12px; margin-bottom: 2px; }
+  .msg audio { width: 100%; height: 32px; margin-top: 6px; }
+  #toast { position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%); background: var(--panel);
+    border: 1px solid var(--line); padding: 8px 14px; border-radius: 10px; font-size: 13px; opacity: 0;
+    transition: opacity .2s; pointer-events: none; z-index: 20; }
+  #toast.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .w { animation: none; } }
+</style>
+</head>
+<body>
+<canvas id="orb" aria-hidden="true"></canvas>
+
+<div id="hud">
+  <div id="status"><span id="dot"></span><span id="statusText">Starting…</span></div>
+  <div id="metrics" aria-live="off"><div id="ctx"></div><div id="rtt"></div><div id="lat"></div></div>
+</div>
+
+<div id="captions" aria-live="polite">
+  <div id="you"></div>
+  <div id="bot"></div>
+</div>
+
+<div id="bar">
+  <button id="micBtn" aria-pressed="true">Mic on</button>
+  <button id="newBtn">New chat</button>
+  <button id="txBtn">Transcript</button>
+  <button id="setBtn">Settings</button>
+</div>
+
+<aside class="panel" id="txPanel" aria-label="Transcript"><h2>Transcript</h2><div id="txList"></div></aside>
+
+<aside class="panel" id="setPanel" aria-label="Settings">
+  <h2>Latency &amp; behaviour</h2>
+  <div class="row"><label for="specMs">Start thinking after silence <output id="specOut"></output></label>
+    <input type="range" id="specMs" min="120" max="800" step="10" value="200"></div>
+  <div class="row"><label for="commitMs">Start speaking after silence <output id="commitOut"></output></label>
+    <input type="range" id="commitMs" min="150" max="3000" step="50" value="600"></div>
+  <div class="row"><label><span>Let me interrupt the reply</span><input type="checkbox" id="barge" checked></label>
+    <span>Use headphones for the cleanest interruption; speakers rely on browser echo-cancel.</span></div>
+  <div class="row"><label for="vadThr">Voice sensitivity <output id="vadOut"></output></label>
+    <input type="range" id="vadThr" min="0.3" max="0.9" step="0.05" value="0.5"></div>
+  <div class="row"><label for="temp">Temperature <output id="tempOut"></output></label>
+    <input type="range" id="temp" min="0" max="1.2" step="0.05" value="0.2"></div>
+  <div class="row"><label for="topp">Top-p <output id="toppOut"></output></label>
+    <input type="range" id="topp" min="0.1" max="1" step="0.05" value="0.8"></div>
+  <div class="row"><label for="typed">Type instead</label>
+    <input type="text" id="typed" placeholder="Message, then Enter" autocomplete="off"></div>
+</aside>
+
+<div id="overlay">
+  <h1>GLM-4-Voice</h1>
+  <p>Talk naturally. The orb listens, thinks and answers out loud; interrupt any time.</p>
+  <button id="startBtn">Start talking</button>
+  <p id="startNote"></p>
+</div>
+<div id="toast" role="status"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.wasm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.30/dist/bundle.min.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const OUT_RATE = 22050;
+
+/* ---------------- state ---------------- */
+let ws, actx, outAnalyser, vad, rec;
+let micOn = true, started = false;
+let ui = "idle";                 // idle | user | thinking | speaking
+let turnId = 0;                  // id of the turn the server is (or was) working on
+let segments = [];               // utterances not yet committed (merged if user keeps talking)
+let pending = false;             // speculative turn sent, audio still on hold
+let holdQueue = [], holdBot = null, holdTimer = null;
+let playSources = [], nextT = 0, replyDone = true, playedAny = false;
+let trueEndT = 0, lastFirstAudioMs = null, ignoreUtterance = false;
+let lastUserText = "", recOffset = 0, recLen = 0;
+const transcript = [];
+let level = 0, levelTarget = 0;
+let streaming = false, streamedFrames = 0, rtt = null;
+const ring = [];                 // last few mic frames (pre-speech pad) as Int16
+
+const cfg = { spec: 200, commit: 600, barge: true, thr: 0.5, temp: 0.2, topp: 0.8 };
+try { Object.assign(cfg, JSON.parse(localStorage.getItem("glmvoice.cfg") || "{}")); } catch {}
+const saveCfg = () => { try { localStorage.setItem("glmvoice.cfg", JSON.stringify(cfg)); } catch {} };
+
+/* ---------------- small helpers ---------------- */
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 3200); }
+
+function setUi(s) {
+  ui = s;
+  const map = { idle: ["Listening", "var(--accent)"], user: ["Hearing you", "#5ee6a8"], thinking: ["Thinking", "#c39bff"], speaking: ["Speaking", "#ffb86b"] };
+  const [t, c] = micOn ? map[s] : ["Mic muted", "var(--dim)"];
+  $("statusText").textContent = t; $("dot").style.background = c;
+}
+
+/* words that fade in one by one; only appends changed tail so old words don't re-animate */
+function setWords(el, text) {
+  const words = text.split(/(\s+)/).filter(Boolean);
+  const kids = el.children;
+  let k = 0;
+  while (k < kids.length && k < words.length && kids[k].textContent === words[k]) k++;
+  while (kids.length > k) el.removeChild(kids[kids.length - 1]);
+  for (let i = k; i < words.length; i++) { const s = document.createElement("span"); s.className = "w"; s.textContent = words[i]; el.appendChild(s); }
+  const c = $("captions"); c.scrollTop = c.scrollHeight;     // keep the newest words in view
+}
+
+function addMsg(who, text, file) {
+  const d = document.createElement("div"); d.className = "msg";
+  d.innerHTML = `<small>${who}</small>`; const p = document.createElement("span"); p.textContent = text; d.appendChild(p);
+  if (file) { const a = document.createElement("audio"); a.controls = true; a.preload = "none"; a.src = "/captures/" + encodeURIComponent(file); d.appendChild(a); }
+  $("txList").appendChild(d); $("txList").parentElement.scrollTop = 1e9;
+}
+
+/* ---------------- websocket ---------------- */
+let sid = null;   // conversation id: lets the server keep history across reconnects and page reloads
+try { sid = localStorage.getItem("glmvoice.sid"); if (!sid) { sid = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)); localStorage.setItem("glmvoice.sid", sid); } } catch { sid = String(Math.random()).slice(2); }
+let everConnected = false;
+function connect() {
+  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws?sid=" + sid);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => { sendCfg(); clearInterval(connect.p); connect.p = setInterval(() => sendJson({ type: "ping", t: performance.now() }), 2500); };
+  ws.onmessage = ev => ev.data instanceof ArrayBuffer ? onAudio(ev.data) : onEvent(JSON.parse(ev.data));
+  ws.onclose = () => { $("statusText").textContent = "Reconnecting…"; setTimeout(connect, 1000); };
+}
+const sendJson = o => ws && ws.readyState === 1 && ws.send(JSON.stringify(o));
+const sendCfg = () => sendJson({ type: "config", temperature: cfg.temp, top_p: cfg.topp });
+
+function sendAudio(f32) {
+  const buf = new ArrayBuffer(4 + f32.length * 2), dv = new DataView(buf);
+  dv.setUint32(0, turnId, true);
+  for (let i = 0; i < f32.length; i++) dv.setInt16(4 + i * 2, Math.max(-1, Math.min(1, f32[i])) * 32767, true);
+  ws.send(buf);
+}
+
+function onEvent(m) {
+  if (m.type === "ready") { if (everConnected) toast("Reconnected — conversation memory kept"); everConnected = true; setUi("idle"); return; }
+  if (m.type === "ctx") { $("ctx").textContent = m.turns ? `memory: ${m.turns} turn${m.turns > 1 ? "s" : ""} · ${(m.tokens / 1000).toFixed(1)}k / ${(m.limit / 1000).toFixed(0)}k tokens` : "memory: empty"; return; }
+  if (m.type === "pong") { rtt = Math.round(performance.now() - m.t); $("rtt").textContent = "network round-trip " + rtt + " ms"; return; }
+  if (m.id !== undefined && m.id !== turnId) return;           // stale turn
+  switch (m.type) {
+    case "text": if (pending) holdBot = m.text; else setWords($("bot"), m.text); break;
+    case "first_audio": lastFirstAudioMs = m.ms; break;
+    case "done":
+      replyDone = true;
+      if (m.text) { const t = m.text; if (pending) holdBot = t; else setWords($("bot"), t); }
+      if (m.text || m.file) addMsg("GLM" + (m.interrupted ? " (interrupted)" : ""), m.text, m.file);
+      if (!pending) finishIfSilent();
+      break;
+    case "error": if (m.message !== "no speech") toast("Error: " + m.message); if (!pending) { setUi("idle"); } break;
+  }
+}
+
+/* ---------------- playback (gapless PCM) ---------------- */
+function onAudio(buf) {
+  if (buf.byteLength <= 4) return;
+  const id = new DataView(buf).getUint32(0, true);
+  if (id !== turnId) return;
+  if (pending) { holdQueue.push(buf); return; }
+  play(buf);
+}
+
+function play(buf) {
+  const i16 = new Int16Array(buf, 4, (buf.byteLength - 4) >> 1);
+  const ab = actx.createBuffer(1, i16.length, OUT_RATE), ch = ab.getChannelData(0);
+  for (let i = 0; i < i16.length; i++) ch[i] = i16[i] / 32768;
+  const src = actx.createBufferSource(); src.buffer = ab; src.connect(outAnalyser);
+  const t = Math.max(actx.currentTime + 0.015, nextT);
+  if (!playedAny) {
+    playedAny = true;
+    const audibleAt = performance.now() + (t - actx.currentTime) * 1000;
+    showLatency(audibleAt - trueEndT);
+    setUi("speaking");
+  }
+  src.start(t); nextT = t + ab.duration;
+  playSources.push(src);
+  src.onended = () => { playSources = playSources.filter(s => s !== src); if (!playSources.length) finishIfSilent(); };
+}
+
+function finishIfSilent() {
+  if (replyDone && !pending && !playSources.length && ui !== "user") setUi("idle");
+}
+
+function stopPlayback() {
+  playSources.forEach(s => { s.onended = null; try { s.stop(); } catch {} });
+  playSources = []; nextT = 0; holdQueue = []; holdBot = null;
+}
+
+function showLatency(ms) {
+  const srv = lastFirstAudioMs != null ? ` · server ${lastFirstAudioMs} ms` : "";
+  $("lat").innerHTML = `you stop → hear reply: <b>${Math.round(ms)} ms</b>${srv}`;
+}
+
+/* ---------------- turn logic ---------------- */
+function concat(list) {
+  const n = list.reduce((a, b) => a + b.length, 0), out = new Float32Array(n); let o = 0;
+  for (const a of list) { out.set(a, o); o += a.length; } return out;
+}
+
+function commitTurn() {
+  holdTimer = null; pending = false; segments = [];
+  const q = holdQueue; holdQueue = [];
+  q.forEach(play);
+  if (holdBot) { setWords($("bot"), holdBot); holdBot = null; }
+  if (lastUserText) { addMsg("You", lastUserText); sendJson({ type: "user_text", id: turnId, text: lastUserText }); }
+  recOffset = recLen;
+  finishIfSilent();
+}
+
+/* Mic audio is uploaded while the user is still talking, so only the last frames are left to send at the end. */
+const toI16 = f => { const o = new Int16Array(f.length); for (let i = 0; i < f.length; i++) o[i] = Math.max(-1, Math.min(1, f[i])) * 32767; return o; };
+function sendChunk(i16) { const b = new Uint8Array(4 + i16.length * 2); b.set(new Uint8Array(i16.buffer), 4); if (ws && ws.readyState === 1) ws.send(b); }
+function onFrame(frame) {
+  const i16 = toI16(frame);
+  if (streaming) { sendChunk(i16); streamedFrames++; }
+  ring.push(i16); if (ring.length > 14) ring.shift();
+}
+
+function onSpeechStart() {
+  if (ui === "idle" || ui === "user") setUi("user");
+  if (!streaming) {
+    sendJson({ type: "stream_start", keep: pending });
+    streaming = true; streamedFrames = 0;
+    ring.forEach(f => { sendChunk(f); streamedFrames++; });     // pre-speech padding (includes the triggering frame)
+  }
+}
+
+function onSpeechRealStart() {
+  ignoreUtterance = false;
+  if (pending) {                              // user resumed before we started talking: keep merging
+    clearTimeout(holdTimer); holdTimer = null; pending = false;
+    sendJson({ type: "cancel", id: turnId, keep: false });
+    stopPlayback(); replyDone = true; playedAny = false;
+    setWords($("bot"), ""); setUi("user");
+    return;
+  }
+  if (ui === "thinking" || ui === "speaking") {
+    if (!cfg.barge) { ignoreUtterance = true; return; }
+    sendJson({ type: "cancel", id: turnId, keep: true });
+    stopPlayback(); replyDone = true; playedAny = false; segments = [];
+    turnId++;                                  // anything still in flight is now stale
+  }
+  setWords($("you"), ""); setWords($("bot"), ""); lastUserText = ""; recOffset = recLen;
+  setUi("user");
+}
+
+function onSpeechEnd(audio) {
+  const wasStreaming = streaming && streamedFrames > 0; streaming = false;
+  if (ignoreUtterance) { ignoreUtterance = false; if (wasStreaming) sendJson({ type: "stream_abort" }); return; }
+  segments.push(audio);
+  turnId++;
+  replyDone = false; playedAny = false; lastFirstAudioMs = null;
+  trueEndT = performance.now() - cfg.spec;     // VAD reports after `spec` ms of silence
+  pending = true; holdQueue = []; holdBot = null;
+  if (wasStreaming) sendJson({ type: "stream_end", id: turnId }); else sendAudio(concat(segments));
+  setUi("thinking");
+  holdTimer = setTimeout(commitTurn, Math.max(0, cfg.commit - cfg.spec));
+}
+
+function sendTyped(text) {
+  if (ui === "thinking" || ui === "speaking") { sendJson({ type: "cancel", id: turnId, keep: true }); stopPlayback(); }
+  turnId++; replyDone = false; playedAny = false; pending = false; segments = [];
+  trueEndT = performance.now(); lastUserText = text;
+  setWords($("you"), text); setWords($("bot"), ""); addMsg("You", text);
+  sendJson({ type: "text_turn", id: turnId, text });
+  setUi("thinking");
+}
+
+/* ---------------- live captions (browser speech recognition, display only) ---------------- */
+function startCaptions() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { $("startNote").textContent = "Live captions need Chrome/Edge/Safari; voice chat works regardless."; return; }
+  rec = new SR(); rec.continuous = true; rec.interimResults = true; rec.lang = "en-US";
+  rec.onresult = e => {
+    recLen = e.results.length;
+    let s = ""; for (let i = Math.min(recOffset, recLen); i < recLen; i++) s += e.results[i][0].transcript + " ";
+    lastUserText = s.trim();
+    if (ui === "user" || pending || ui === "thinking") setWords($("you"), lastUserText);
+  };
+  rec.onend = () => { recOffset = 0; recLen = 0; if (micOn && started) try { rec.start(); } catch {} };
+  rec.onerror = () => {};
+  try { rec.start(); } catch {}
+}
+
+/* ---------------- orb ---------------- */
+const cv = $("orb"), g = cv.getContext("2d");
+function fit() { const d = devicePixelRatio || 1; cv.width = innerWidth * d; cv.height = innerHeight * d; g.setTransform(d, 0, 0, d, 0, 0); }
+addEventListener("resize", fit); fit();
+const PALETTE = { idle: [124, 196, 255], user: [94, 230, 168], thinking: [195, 155, 255], speaking: [255, 184, 107] };
+let col = [124, 196, 255];
+const tdata = new Uint8Array(1024);
+function outLevel() {
+  if (!outAnalyser) return 0; outAnalyser.getByteTimeDomainData(tdata);
+  let s = 0; for (let i = 0; i < tdata.length; i++) { const v = (tdata[i] - 128) / 128; s += v * v; } return Math.min(1, Math.sqrt(s / tdata.length) * 4);
+}
+function draw(ts) {
+  const t = ts / 1000, w = innerWidth, h = innerHeight, cx = w / 2, cy = h / 2 - Math.min(h * 0.06, 40);
+  g.clearRect(0, 0, w, h);
+  const target = PALETTE[micOn ? ui : "idle"]; for (let i = 0; i < 3; i++) col[i] += (target[i] - col[i]) * 0.08;
+  const lv = ui === "speaking" ? outLevel() : levelTarget;
+  level += (lv - level) * 0.25;
+  const R = Math.min(w, h) * 0.16;
+  const breathe = ui === "thinking" ? 0.05 * Math.sin(t * 5) : 0.02 * Math.sin(t * 1.6);
+  const amp = 0.03 + level * 0.32 + (ui === "thinking" ? 0.06 : 0);
+  const r0 = R * (1 + breathe + level * 0.12), [r, gg, b] = col.map(Math.round);
+  const glow = g.createRadialGradient(cx, cy, r0 * 0.4, cx, cy, r0 * 2.6);
+  glow.addColorStop(0, `rgba(${r},${gg},${b},${0.32 + level * 0.3})`); glow.addColorStop(1, `rgba(${r},${gg},${b},0)`);
+  g.fillStyle = glow; g.fillRect(0, 0, w, h);
+  const N = 120, spin = ui === "thinking" ? 2.2 : 0.7;
+  g.beginPath();
+  for (let i = 0; i <= N; i++) {
+    const a = i / N * Math.PI * 2;
+    const n = Math.sin(a * 3 + t * spin) * 0.5 + Math.sin(a * 5 - t * spin * 1.3) * 0.3 + Math.sin(a * 2 + t * 0.9) * 0.4;
+    const rr = r0 * (1 + amp * n);
+    const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr; i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.closePath();
+  const fill = g.createRadialGradient(cx - r0 * 0.3, cy - r0 * 0.35, r0 * 0.1, cx, cy, r0 * 1.25);
+  fill.addColorStop(0, `rgba(255,255,255,0.95)`); fill.addColorStop(0.35, `rgba(${r},${gg},${b},0.95)`); fill.addColorStop(1, `rgba(${r},${gg},${b},0.55)`);
+  g.fillStyle = fill; g.shadowColor = `rgba(${r},${gg},${b},0.7)`; g.shadowBlur = 40 + level * 60; g.fill(); g.shadowBlur = 0;
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+/* ---------------- boot ---------------- */
+async function start() {
+  $("startBtn").disabled = true;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" });
+    await actx.resume();
+    outAnalyser = actx.createAnalyser(); outAnalyser.fftSize = 1024; outAnalyser.connect(actx.destination);
+    connect();
+    vad = await window.vad.MicVAD.new({
+      model: "v5",
+      baseAssetPath: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.30/dist/",
+      onnxWASMBasePath: "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/",
+      positiveSpeechThreshold: cfg.thr, negativeSpeechThreshold: Math.max(0.1, cfg.thr - 0.15),
+      redemptionMs: cfg.spec, minSpeechMs: 200, preSpeechPadMs: 300,
+      onFrameProcessed: (_p, frame) => { onFrame(frame); if (ui === "user" || ui === "idle") { let s = 0; for (let i = 0; i < frame.length; i += 4) s += frame[i] * frame[i]; levelTarget = Math.min(1, Math.sqrt(s / (frame.length / 4)) * 9); } else levelTarget = 0; },
+      onSpeechStart, onSpeechRealStart, onSpeechEnd,
+      onVADMisfire: () => { if (streaming) { streaming = false; sendJson({ type: "stream_abort" }); } if (ui === "user") setUi(pending ? "thinking" : "idle"); },
+    });
+    await vad.start();
+    startCaptions();
+    started = true; $("overlay").remove(); setUi("idle");
+  } catch (e) {
+    console.error(e); $("startBtn").disabled = false;
+    $("startNote").textContent = "Couldn't start: " + (e.message || e) + " — allow the microphone and reload.";
+  }
+}
+$("startBtn").onclick = start;
+
+/* ---------------- controls ---------------- */
+$("micBtn").onclick = async () => {
+  micOn = !micOn; $("micBtn").classList.toggle("off", !micOn); $("micBtn").setAttribute("aria-pressed", micOn); $("micBtn").textContent = micOn ? "Mic on" : "Mic off";
+  if (micOn) { await vad.start(); try { rec && rec.start(); } catch {} } else { streaming = false; await vad.pause(); try { rec && rec.stop(); } catch {} levelTarget = 0; }
+  setUi(ui);
+};
+$("newBtn").onclick = () => {
+  sendJson({ type: "reset" }); stopPlayback(); clearTimeout(holdTimer); pending = false; segments = []; replyDone = true; turnId++;
+  setWords($("you"), ""); setWords($("bot"), ""); $("txList").innerHTML = ""; $("lat").textContent = ""; setUi("idle");
+};
+const toggle = id => { const p = $(id), open = !p.classList.contains("open"); document.querySelectorAll(".panel").forEach(x => x.classList.remove("open")); if (open) p.classList.add("open"); };
+$("txBtn").onclick = () => toggle("txPanel"); $("setBtn").onclick = () => toggle("setPanel");
+addEventListener("keydown", e => { if (e.key === "Escape") document.querySelectorAll(".panel").forEach(x => x.classList.remove("open")); });
+
+function bind(id, out, key, fmt, apply) {
+  const el = $(id), o = $(out); el.value = cfg[key];
+  const upd = () => { cfg[key] = +el.value; o.textContent = fmt(cfg[key]); saveCfg(); apply && apply(); };
+  el.addEventListener("input", upd); o.textContent = fmt(cfg[key]);
+}
+const applyVad = () => vad && vad.setOptions({ redemptionMs: cfg.spec, positiveSpeechThreshold: cfg.thr, negativeSpeechThreshold: Math.max(0.1, cfg.thr - 0.15) });
+bind("specMs", "specOut", "spec", v => v + " ms", () => { if (cfg.commit < cfg.spec) { cfg.commit = cfg.spec; $("commitMs").value = cfg.commit; $("commitOut").textContent = cfg.commit + " ms"; } applyVad(); });
+bind("commitMs", "commitOut", "commit", v => v + " ms", () => { if (cfg.commit < cfg.spec) { cfg.spec = cfg.commit; $("specMs").value = cfg.spec; $("specOut").textContent = cfg.spec + " ms"; applyVad(); } });
+bind("vadThr", "vadOut", "thr", v => v.toFixed(2), applyVad);
+bind("temp", "tempOut", "temp", v => v.toFixed(2), sendCfg);
+bind("topp", "toppOut", "topp", v => v.toFixed(2), sendCfg);
+$("barge").checked = cfg.barge; $("barge").onchange = e => { cfg.barge = e.target.checked; saveCfg(); };
+$("typed").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.value.trim()) { sendTyped(e.target.value.trim()); e.target.value = ""; } });
+
+window.__glm = { onSpeechEnd, onSpeechRealStart, onSpeechStart, onFrame, get state() { return { ui, turnId, pending, cfg }; } };   // test hook
+</script>
+</body>
+</html>

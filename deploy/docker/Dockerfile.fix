@@ -1,0 +1,2 @@
+FROM glm4voice-runtime-blackwell:0.1
+RUN pip install --no-cache-dir -U typing_extensions "bitsandbytes>=0.46"

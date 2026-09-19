@@ -12,16 +12,39 @@ python model_server.py --host localhost --model-path THUDM/glm-4-voice-9b --port
 """
 import argparse
 import json
+from queue import Queue
+from threading import Event, Thread
 
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
-from transformers import AutoModel, AutoTokenizer, BitsAndBytesConfig
-from transformers.generation.streamers import BaseStreamer
+from fastapi.responses import JSONResponse, StreamingResponse
 import torch
+from transformers import AutoModel, AutoTokenizer, BitsAndBytesConfig
+from transformers import StoppingCriteria, StoppingCriteriaList
+from transformers.generation.streamers import BaseStreamer
+from transformers.modeling_utils import PreTrainedModel
 import uvicorn
 
-from threading import Thread
-from queue import Queue
+# Fix for accelerate / transformers dispatch_model calling .to() on 4-bit / 8-bit bitsandbytes models
+_orig_to = PreTrainedModel.to
+def _patched_to(self, *args, **kwargs):
+    try:
+        return _orig_to(self, *args, **kwargs)
+    except ValueError as e:
+        if "is not supported for" in str(e):
+            return self
+        raise
+PreTrainedModel.to = _patched_to
+
+
+class CancelCriteria(StoppingCriteria):
+    def __init__(self, event):
+        self.event = event
+
+    def __call__(self, input_ids, scores, **kwargs):
+        return self.event.is_set()
+
+
+_current_cancel = Event()
 
 
 class TokenStreamer(BaseStreamer):
@@ -62,7 +85,7 @@ class TokenStreamer(BaseStreamer):
 
 
 class ModelWorker:
-    def __init__(self, model_path, dtype="bfloat16", device='cuda'):
+    def __init__(self, model_path, dtype="bfloat16", device="cuda"):
         self.device = device
         self.bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -75,7 +98,7 @@ class ModelWorker:
             model_path,
             trust_remote_code=True,
             quantization_config=self.bnb_config if self.bnb_config else None,
-            device_map={"": 0}
+            device_map=("auto" if dtype == "int4" else {"": 0})
         ).eval()
         self.glm_tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
@@ -89,6 +112,10 @@ class ModelWorker:
         top_p = float(params.get("top_p", 1.0))
         max_new_tokens = int(params.get("max_new_tokens", 256))
 
+        global _current_cancel
+        _current_cancel.set()  # abort any previous generation still running
+        cancel = _current_cancel = Event()
+
         inputs = tokenizer([prompt], return_tensors="pt")
         inputs = inputs.to(self.device)
         streamer = TokenStreamer(skip_prompt=True)
@@ -99,7 +126,8 @@ class ModelWorker:
                 max_new_tokens=int(max_new_tokens),
                 temperature=float(temperature),
                 top_p=float(top_p),
-                streamer=streamer
+                streamer=streamer,
+                stopping_criteria=StoppingCriteriaList([CancelCriteria(cancel)]),
             )
         )
         thread.start()
@@ -120,6 +148,17 @@ class ModelWorker:
 
 
 app = FastAPI()
+
+
+@app.get("/health")
+async def health():
+    return JSONResponse({"status": "ok"})
+
+
+@app.post("/cancel")
+async def cancel():
+    _current_cancel.set()
+    return JSONResponse({"status": "cancelled"})
 
 
 @app.post("/generate_stream")
