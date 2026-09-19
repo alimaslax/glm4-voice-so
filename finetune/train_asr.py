@@ -109,6 +109,11 @@ def main():
     save_file({k: v.detach().cpu().contiguous() for k, v in model._get_adapters().items()},
               str(final / f"adapter.{cfg['target_lang']}.safetensors"))
     L.info("saved %s", final)
+    if not cfg.get("keep_checkpoints", False):     # ~11 GB each (optimizer state); only needed to resume
+        import shutil
+        for ck in out_dir.glob("checkpoint-*"):
+            shutil.rmtree(ck)
+        L.info("removed resume checkpoints (keep_checkpoints: false)")
 
 
 if __name__ == "__main__":

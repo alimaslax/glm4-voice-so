@@ -20,6 +20,7 @@ train:
   save_total_limit: 3
   dataloader_num_workers: 6
 max_dur: 20.0
+keep_checkpoints: false           # delete checkpoint-* (11 GB each) once final/ is saved
 train_splits: [train, ext_train]   # asr/<split> dirs mixed for training (ext_* from prepare_asr_ext.py)
 extra_datasets:                    # prepare_asr_ext.py; revision pinned for repeatability
   - repo: IbrahimDayax/somali-combined-asr-stt-dataset   # ~4.9 h train, read + synthetic TTS Somali

@@ -82,6 +82,16 @@ DOCKER=(docker run --rm --gpus all --ipc=host --network host --name "so-$STAGE"
   -v /workspace:/workspace -w "$REPO/finetune")
 if [ "$STAGE" = shell ]; then exec "${DOCKER[@]}" -it "$IMAGE" bash; fi
 
+# Training stages write multi-GB checkpoints: fail up front instead of crashing mid-save on a full disk.
+MIN_FREE_GB="${MIN_FREE_GB:-25}"
+if [[ "$STAGE" == train_* ]]; then
+  mkdir -p "$SO_WORK"
+  free_gb=$(df -BG --output=avail "$SO_WORK" | tail -1 | tr -dc 0-9)
+  if [ "$free_gb" -lt "$MIN_FREE_GB" ]; then
+    echo "[$STAGE] only ${free_gb} GB free under $SO_WORK (need $MIN_FREE_GB; override MIN_FREE_GB)"; exit 3
+  fi
+fi
+
 mkdir -p "$SO_WORK/logs"
 LOG="$SO_WORK/logs/$STAGE.$(date -u +%Y%m%dT%H%M%SZ).log"
 echo "[$STAGE] image=$IMAGE commit=$(git -C "$REPO" rev-parse --short HEAD) log=$LOG"
