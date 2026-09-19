@@ -1,12 +1,12 @@
-"""Single-speaker Somali re-transcription: diarized speaker runs -> MAI-Transcribe-2 (language forced to Somali).
+"""Single-speaker Somali re-transcription: diarized speaker runs -> MAI-Transcribe-2 via OpenRouter.
 
-The original windows were sent with automatic language detection, which labelled Somali as ur/et/en/ar/...
-Here every single-speaker stretch is re-sent on its own, with language=so and diarization on, so a clip
-counts as single-speaker only if our diarization AND the new response both hear one voice.
+Same request as the original window run (BayLing-Duplex transcribe_duplex_diarized_openrouter.py): automatic
+language (MAI-Transcribe-2 rejects language=so), diarization on, verbatim. Every single-speaker stretch is
+sent on its own, so a clip counts as single-speaker only if our diarization AND the new response hear one voice.
 
   python single_speaker.py plan                     # speaker runs -> plan.jsonl + projected cost (no requests)
   python single_speaker.py transcribe [--limit 20]  # one request per clip, resumable, never re-sends a clip
-  python single_speaker.py build                    # responses -> manifest.jsonl (+ Somali / single-voice checks)
+  python single_speaker.py build                    # responses -> manifest.jsonl (single-voice, Latin-script checks)
 
 Audio is cut in memory from $SO_DATA/processed/<channel>/<episode>/clean.flac and never written to disk.
 Output ($SO_WORK/single_speaker/, text only): plan.jsonl, responses/<channel>/<episode>/<clip>.json,
@@ -34,13 +34,13 @@ L = log("single_speaker")
 OUT = WORK / "single_speaker"
 MODEL = "microsoft/mai-transcribe-2"
 ENDPOINT = "https://openrouter.ai/api/v1/audio/transcriptions"
-LANGUAGE = "so"
+LANGUAGE = "automatic"   # the API returns 400 for so / so-SO
 COST_PER_HOUR_USD = 0.10
 EDGE = 0.15      # a word this close to a window edge may be cut off -> dropped
 PAD = 0.2        # silence kept around a run, never crossing another speaker's word
 SKIP_CHANNELS = {"omar"}   # already single-speaker (prepare_omar.py verifies him with ECAPA)
 
-# Somali function words / very common forms (a text check: the API echoes language=so when we force it).
+# Somali function words / very common forms: informational check (the API's own language guess is unreliable).
 SOMALI_COMMON = set("""
 waa iyo oo ku ka u la in ay uu aan ah ee ayaa waxaa waxay wuxuu waxaan si soo ma mid kale ha ahaa
 laga loo lagu kaga kala sidaas sida hadda markii marka haddii laakiin ama aad baa bay buu yahay yihiin
@@ -149,7 +149,6 @@ def request_once(wav, key):
     payload = {
         "model": MODEL,
         "input_audio": {"data": base64.b64encode(wav).decode("ascii"), "format": "wav"},
-        "language": LANGUAGE,
         "response_format": "verbose_json",
         "timestamp_granularities": ["word"],
         "provider": {"options": {"azure": {
@@ -258,10 +257,12 @@ def build(a):
         is_so, so_info = somali_check(text)
         cps = len(text) / r["dur"]
         single = len(speakers) <= 1
-        ok = bool(text) and is_so and single and 3 <= cps <= 30
+        latin = so_info["non_latin_ratio"] < 0.02
+        ok = bool(text) and latin and single and 3 <= cps <= 30
         stats["responses"] += 1
         stats["ok"] += ok
-        stats["not_somali"] += not is_so
+        stats["not_somali_check"] += not is_so
+        stats["non_latin"] += not latin
         stats["multi_speaker"] += not single
         stats["bad_rate"] += not (3 <= cps <= 30)
         stats["hours_ok"] += r["dur"] / 3600 if ok else 0

@@ -13,8 +13,8 @@
 #   prepare_asr     Somali segments -> 16 kHz audio + normalized text for MMS
 #   prepare_asr_ext extra HF Somali ASR sets (configs/asr_mms.yaml extra_datasets) -> asr/ext_*
 #   ss_plan         single-speaker runs from the diarization -> single_speaker/plan.jsonl (+ projected cost)
-#   ss_transcribe   MAI-Transcribe-2 via OpenRouter, language forced to Somali, one request per clip
-#   ss_build        responses -> single_speaker/manifest.jsonl (Somali + single-voice checks)
+#   ss_transcribe   MAI-Transcribe-2 via OpenRouter (auto language, diarization), one request per clip
+#   ss_build        responses -> single_speaker/manifest.jsonl (single-voice + Latin-script checks)
 #   ss_push/ss_pull transcripts only (no audio) <-> bucket lewenberg/so-single-speaker-transcripts
 #   prepare_asr_ss  single-speaker manifest -> asr/ss_{train,val,test}
 #   eval_asr        CER/WER of any model: --model <hf id or dir> --tag <name> [--splits test,val]
