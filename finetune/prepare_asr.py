@@ -1,7 +1,8 @@
 """MMS ASR data: Somali segments -> 16 kHz int16 audio + normalized text, as HF datasets.
 
 Input : $SO_WORK/somali/manifest.jsonl (prepare_somali.py), $SO_DATA/processed/*/*/clean.flac
-Output: $SO_WORK/asr/{train,val,test}   columns: id, audio (int16 @16k), text (normalized), text_raw, dur
+Output: $SO_WORK/asr/{train,val,test}   columns: id, audio (raw int16 bytes @16k), text (normalized), text_raw, dur
+        (bytes, not a list column: Arrow writes them ~100x faster; readers use np.frombuffer(..., np.int16))
 Text normalization matches what the stock MMS Somali head emits: lowercase, letters/digits/'/-, no punctuation.
 """
 import re
@@ -28,25 +29,25 @@ def clips(items_by_audio):
     import torchaudio.functional as AF
     for i, (audio, items) in enumerate(sorted(items_by_audio.items())):
         full, sr = load_audio(PROCESSED_DIR / audio)
-        x16 = AF.resample(torch.from_numpy(full), sr, 16000).numpy()
+        x16 = AF.resample(torch.from_numpy(full).cuda(), sr, 16000).cpu().numpy()     # GPU: ~50x faster
         for r in items:
             text = normalize(r["text"])
             if len(text.replace(" ", "")) < 2:
                 continue
             seg = x16[int(r["start"] * 16000): int(r["end"] * 16000)]
-            yield dict(id=r["id"], audio=(np.clip(seg, -1, 1) * 32767).astype(np.int16),
+            yield dict(id=r["id"], audio=(np.clip(seg, -1, 1) * 32767).astype(np.int16).tobytes(),
                        text=text, text_raw=r["text"], dur=len(seg) / 16000)
         if i % 50 == 0:
             L.info("%d/%d episodes", i, len(items_by_audio))
 
 
 def main():
-    from datasets import Dataset, Features, Sequence, Value
+    from datasets import Dataset, Features, Value
     by_split = {"train": defaultdict(list), "val": defaultdict(list), "test": defaultdict(list)}
     for r in read_jsonl(WORK / "somali" / "manifest.jsonl"):
         if r["kind"] == "segment":
             by_split[r["split"]][r["audio"]].append(r)
-    feats = Features(id=Value("string"), audio=Sequence(Value("int16")), text=Value("string"),
+    feats = Features(id=Value("string"), audio=Value("binary"), text=Value("string"),
                      text_raw=Value("string"), dur=Value("float32"))
     for split, items in by_split.items():
         # generator -> arrow on disk; never holds a whole split of audio in RAM

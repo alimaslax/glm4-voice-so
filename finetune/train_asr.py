@@ -22,7 +22,7 @@ class Collator:
         self.proc = proc
 
     def __call__(self, feats):
-        audio = [np.asarray(f["audio"], dtype=np.float32) / 32767 for f in feats]
+        audio = [np.frombuffer(f["audio"], dtype=np.int16).astype(np.float32) / 32767 for f in feats]
         batch = self.proc.feature_extractor(audio, sampling_rate=16000, padding=True, return_attention_mask=True,
                                             return_tensors="pt")
         lab = self.proc.tokenizer([f["text"] for f in feats], padding=True, return_tensors="pt")

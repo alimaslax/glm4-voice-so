@@ -37,7 +37,7 @@ def main():
         refs, hyps = [], []
         for i in range(0, len(ds), a.batch):
             b = ds[i:i + a.batch]
-            audio = [np.asarray(x, dtype=np.float32) / 32767 for x in b["audio"]]
+            audio = [np.frombuffer(x, dtype=np.int16).astype(np.float32) / 32767 for x in b["audio"]]
             inp = proc(audio, sampling_rate=16000, padding=True, return_attention_mask=True, return_tensors="pt")
             with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
                 logits = model(inp.input_values.cuda(), attention_mask=inp.attention_mask.cuda()).logits
