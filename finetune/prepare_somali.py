@@ -66,7 +66,9 @@ def main():
         stats["episodes"] += 1
         meta = json.loads(idx.read_text())
         for w in meta.get("windows", []):
-            if w.get("diarization_status") != "ok":
+            # "ok" = diverse run; missing status = the earlier run (same segment format, speakers included).
+            # "no_speaker_labels" windows hold one empty whole-window segment -> unusable.
+            if w.get("diarization_status", "ok") != "ok":
                 stats["window_not_ok"] += 1
                 continue
             resp = idx.parent / w.get("response_file", f"{w['window_id']}.response.json")
