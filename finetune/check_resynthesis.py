@@ -1,12 +1,13 @@
 """Go/no-go: can the frozen tokenizer + decoder carry Somali? Also validates our mel settings for Track B.
 
-For N Somali val segments and N Omar val clips:
+For --n-somali random Somali segments and --n-omar random Omar clips (fixed seed, any split):
   audio -> speech tokens -> flow -> hift -> wav      (stock decoder, or --flow a fine-tuned flow.pt)
   Whisper-large-v3-turbo (language=so) transcribes original and resynthesized audio; CER vs reference text.
   For Omar: L1 between our 22.05 kHz mel (tokenize_audio.mel_22k) and the stock flow's mel for the same
   tokens. If MEL settings were wrong this is far larger than the Somali-vs-Omar voice difference.
 
-Output: $SO_WORK/resynth/<tag>/{somali,omar}/*.wav, report.json
+Output: $SO_WORK/resynth/<tag>/{somali,omar}/NN_<id>.{orig,resynth,ab}.wav, report.json, README.md
+        *.ab.wav = original, 0.6 s silence, resynthesis (22.05 kHz) - the quickest way to listen.
 """
 import argparse
 import json
@@ -25,7 +26,11 @@ WHISPER = Path(os.environ.get("SO_WHISPER", "/workspace/models/whisper-large-v3-
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--n", type=int, default=20)
+    p.add_argument("--n-somali", type=int, default=50)
+    p.add_argument("--n-omar", type=int, default=20)
+    p.add_argument("--seed", type=int, default=7)
+    p.add_argument("--min-dur", type=float, default=2.0)
+    p.add_argument("--max-dur", type=float, default=12.0)
     p.add_argument("--flow", default=None, help="fine-tuned flow.pt (default: stock)")
     p.add_argument("--tag", default="stock")
     a = p.parse_args()
@@ -68,25 +73,32 @@ def main():
     norm = lambda s: " ".join("".join(ch for ch in s.lower() if ch.isalnum() or ch.isspace()).split())
     out = WORK / "resynth" / a.tag
     report = {}
-    sources = {
-        "somali": [(r, PROCESSED_DIR / r["audio"], r["start"], r["end"])
-                   for r in read_jsonl(WORK / "somali" / "manifest.jsonl")
-                   if r["split"] == "val" and r["kind"] == "segment" and 3 <= r["end"] - r["start"] <= 12],
-        "omar": [(r, OMAR_DIR / r["audio"], None, None)
-                 for r in read_jsonl(WORK / "omar" / "manifest.jsonl") if r["split"] == "val" and r["dur"] <= 15],
-    }
+    import random
+    rng = random.Random(a.seed)
+    som = [(r, PROCESSED_DIR / r["audio"], r["start"], r["end"])
+           for r in read_jsonl(WORK / "somali" / "manifest.jsonl")
+           if r["kind"] == "segment" and a.min_dur <= r["end"] - r["start"] <= a.max_dur]
+    om = [(r, OMAR_DIR / r["audio"], None, None)
+          for r in read_jsonl(WORK / "omar" / "manifest.jsonl") if a.min_dur <= r["dur"] <= a.max_dur + 3]
+    sources = {"somali": rng.sample(som, min(a.n_somali, len(som))),
+               "omar": rng.sample(om, min(a.n_omar, len(om)))}
+    readme = ["# Resynthesis check (%s decoder)\n" % a.tag,
+              "`*.ab.wav`: original, short pause, then the same audio after speech tokenizer -> flow -> HiFT.\n"]
     for name, items in sources.items():
-        items = items[:: max(1, len(items) // a.n)][: a.n]
         (out / name).mkdir(parents=True, exist_ok=True)
         refs, hyp_orig, hyp_resyn, mel_l1 = [], [], [], []
-        for r, path, s, e in items:
+        readme.append(f"\n## {name}\n\n| # | file | reference text | Whisper on original | Whisper on resynth |\n|---|---|---|---|---|")
+        for k, (r, path, s, e) in enumerate(items):
             x, sr = load_audio(path, s, e)
             toks = speech_tokens(tokm, fe, [(x, sr)])[0]
             y, mel_gen = decode(toks)
-            stem = r["id"].replace("/", "__")[-120:]
+            stem = f"{k:02d}_" + r["id"].replace("/", "__")[-80:]
             sf.write(str(out / name / f"{stem}.orig.wav"), x, sr)
             sf.write(str(out / name / f"{stem}.resynth.wav"), y, 22050)
+            x22 = AF.resample(torch.from_numpy(x), sr, 22050).numpy()
+            sf.write(str(out / name / f"{stem}.ab.wav"), np.concatenate([x22, np.zeros(int(0.6 * 22050)), y]), 22050)
             refs.append(norm(r["text"])); hyp_orig.append(norm(asr(x, sr))); hyp_resyn.append(norm(asr(y, 22050)))
+            readme.append(f"| {k} | `{stem}.ab.wav` | {r['text'][:120]} | {hyp_orig[-1][:120]} | {hyp_resyn[-1][:120]} |")
             if name == "omar":
                 m = mel_22k(x, sr).float().cpu()
                 n = min(len(m), len(mel_gen))
@@ -106,6 +118,9 @@ def main():
                 frame_ratio=round(float(np.mean([m["frames_ours"] / m["frames_flow"] for m in mel_l1])), 3))
         L.info("%s: %s", name, json.dumps({k: v for k, v in report[name].items() if k != "examples"}))
     (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    summary = [f"\n## Summary\n"] + [f"- **{n}**: Whisper CER original {v['whisper_cer_original']:.3f} -> resynth "
+                                     f"{v['whisper_cer_resynth']:.3f} ({v['n']} clips)" for n, v in report.items()]
+    (out / "README.md").write_text("\n".join(readme[:2] + summary + readme[2:]) + "\n")
     L.info("wrote %s", out / "report.json")
 
 
