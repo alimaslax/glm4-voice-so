@@ -19,6 +19,10 @@ for s in "${STAGES[@]}"; do
   [ "$s" = "$START" ] && started=1
   [ "$started" = 1 ] || continue
   if [ -f "$SO_WORK/.done/$s" ] && [ "${FORCE:-0}" != 1 ]; then echo "== $s: done, skipping"; continue; fi
+  # Omar stages need the complete download (it may still be running in another session)
+  if [ "$s" = prepare_omar ]; then
+    while [ ! -f "$SO_WORK/.done/download" ]; do echo "== waiting for download to finish"; sleep 120; done
+  fi
   echo "== $s: $(date -u)"
   "$HERE/run.sh" "$s"
   date -u > "$SO_WORK/.done/$s"
