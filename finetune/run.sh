@@ -12,6 +12,11 @@
 #   resynth         go/no-go: tokenizer+decoder round trip (stock decoder), MMS-som CER, A/B wavs
 #   prepare_asr     Somali segments -> 16 kHz audio + normalized text for MMS
 #   prepare_asr_ext extra HF Somali ASR sets (configs/asr_mms.yaml extra_datasets) -> asr/ext_*
+#   ss_plan         single-speaker runs from the diarization -> single_speaker/plan.jsonl (+ projected cost)
+#   ss_transcribe   MAI-Transcribe-2 via OpenRouter, language forced to Somali, one request per clip
+#   ss_build        responses -> single_speaker/manifest.jsonl (Somali + single-voice checks)
+#   ss_push/ss_pull transcripts only (no audio) <-> bucket lewenberg/so-single-speaker-transcripts
+#   prepare_asr_ss  single-speaker manifest -> asr/ss_{train,val,test}
 #   eval_asr        CER/WER of any model: --model <hf id or dir> --tag <name> [--splits test,val]
 #   eval_asr_stock  CER/WER of stock facebook/mms-1b-all (som) on held-out episodes
 #   train_asr       fine-tune MMS-1b-all Somali on all segments
@@ -22,7 +27,7 @@
 #   publish_flow    private HF repo lewenberg/glm-4-voice-decoder-omar (base commit, then fine-tune)
 #   train_lora      Track A: bf16 LoRA on glm-4-voice-9b
 #   shell           interactive shell in the container
-# Paths (override via env): SO_DATA, SO_WORK, SO_MODELS. Secrets: .env at the repo root (HF_TOKEN).
+# Paths (override via env): SO_DATA, SO_WORK, SO_MODELS. Secrets: .env at the repo root (HF_TOKEN, OPENROUTER_API_KEY).
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 STAGE="${1:?usage: finetune/run.sh <stage> [args]}"; shift || true
@@ -33,6 +38,8 @@ export SO_MODELS="${SO_MODELS:-/workspace/glm-4-voice/models}"
 
 if [ -f "$REPO/.env" ]; then set -a; . "$REPO/.env"; set +a; fi
 export HF_TOKEN="${HF_TOKEN:-${HUGGINGFACE_TOKEN:-}}"
+export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-${OPEN_ROUTER:-}}"
+SS_BUCKET="${SS_BUCKET:-lewenberg/so-single-speaker-transcripts}"
 
 # Judge for resynthesis checks: the fine-tuned MMS once it exists (container path == host path).
 ASR_JUDGE=facebook/mms-1b-all
@@ -49,6 +56,12 @@ case "$STAGE" in
   resynth)         CMD=(python -u check_resynthesis.py --asr-model "$ASR_JUDGE") ;;
   prepare_asr)     CMD=(python -u prepare_asr.py) ;;
   prepare_asr_ext) CMD=(python -u prepare_asr_ext.py) ;;
+  ss_plan)         CMD=(python -u single_speaker.py plan) ;;
+  ss_transcribe)   CMD=(python -u single_speaker.py transcribe) ;;   # [--limit N] [--workers N] [--retry-failed]
+  ss_build)        CMD=(python -u single_speaker.py build) ;;
+  ss_push)         CMD=(sh -c "hf buckets create $SS_BUCKET --private --exist-ok --format quiet && hf buckets sync \$SO_WORK/single_speaker hf://buckets/$SS_BUCKET --exclude '*.request.json' --exclude '*.tmp'") ;;
+  ss_pull)         CMD=(sh -c "hf buckets sync hf://buckets/$SS_BUCKET \$SO_WORK/single_speaker") ;;
+  prepare_asr_ss)  CMD=(python -u prepare_asr_ss.py) ;;
   eval_asr)        CMD=(python -u eval_asr.py) ;;                 # ad hoc: --model ... --tag ...
   eval_asr_stock)  CMD=(python -u eval_asr.py --model facebook/mms-1b-all --tag stock) ;;
   train_asr)       CMD=(python -u train_asr.py) ;;
@@ -64,7 +77,7 @@ case "$STAGE" in
 esac
 
 DOCKER=(docker run --rm --gpus all --ipc=host --network host --name "so-$STAGE"
-  -e HF_TOKEN -e SO_DATA -e SO_WORK -e SO_MODELS -e HF_HOME=/workspace/cache -e PYTHONUNBUFFERED=1
+  -e HF_TOKEN -e OPENROUTER_API_KEY -e SO_DATA -e SO_WORK -e SO_MODELS -e HF_HOME=/workspace/cache -e PYTHONUNBUFFERED=1
   -v /workspace:/workspace -w "$REPO/finetune")
 if [ "$STAGE" = shell ]; then exec "${DOCKER[@]}" -it "$IMAGE" bash; fi
 
