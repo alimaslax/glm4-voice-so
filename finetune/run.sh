@@ -27,6 +27,7 @@
 #   publish_flow    private HF repo lewenberg/glm-4-voice-decoder-omar (base commit, then fine-tune)
 #   train_lora      Track A: bf16 LoRA on glm-4-voice-9b
 #   publish_lora    private HF repo lewenberg/glm-4-voice-9b-somali-lora (base pointer, then adapter)
+#   ckpt_sync       back up runs/ to private bucket lewenberg/so-train-checkpoints every 10 min (ckpt_pull restores)
 #   shell           interactive shell in the container
 # Paths (override via env): SO_DATA, SO_WORK, SO_MODELS. Secrets: .env at the repo root (HF_TOKEN, OPENROUTER_API_KEY).
 set -euo pipefail
@@ -75,12 +76,14 @@ case "$STAGE" in
   train_flow)      CMD=(python -u train_flow.py) ;;
   train_lora)      CMD=(python -u train_lora.py) ;;
   publish_lora)    CMD=(python -u publish_hf.py lora) ;;
+  ckpt_sync)       CMD=(bash ckpt_sync.sh) ;;             # loop: runs/ -> private bucket (ONCE=1 for one pass)
+  ckpt_pull)       CMD=(sh -c "hf buckets sync hf://buckets/\${CKPT_BUCKET:-lewenberg/so-train-checkpoints}/runs \$SO_WORK/runs") ;;
   shell)           CMD=(bash) ;;
   *) echo "unknown stage: $STAGE"; exit 2 ;;
 esac
 
 DOCKER=(docker run --rm --gpus all --ipc=host --network host --name "so-$STAGE"
-  -e HF_TOKEN -e OPENROUTER_API_KEY -e OPENROUTER_API_KEY2 -e SO_DATA -e SO_WORK -e SO_MODELS -e HF_HOME=/workspace/cache -e PYTHONUNBUFFERED=1
+  -e HF_TOKEN -e ONCE -e CKPT_BUCKET -e CKPT_EVERY_MIN -e OPENROUTER_API_KEY -e OPENROUTER_API_KEY2 -e SO_DATA -e SO_WORK -e SO_MODELS -e HF_HOME=/workspace/cache -e PYTHONUNBUFFERED=1
   -v /workspace:/workspace -w "$REPO/finetune")
 if [ "$STAGE" = shell ]; then exec "${DOCKER[@]}" -it "$IMAGE" bash; fi
 
