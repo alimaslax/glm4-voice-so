@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# From your laptop: copy ONLY the Hugging Face token (and the OpenRouter key, if set) from the local .env\n# to the VM's repo .env.
+# From your laptop: copy ONLY the Hugging Face token (and the OpenRouter keys, if set) from the local .env\n# to the VM's repo .env.
 #   deploy/train/push_env.sh <vm-ip> [ssh-key]
 set -euo pipefail
 IP="${1:?usage: push_env.sh <vm-ip> [ssh-key]}"
@@ -10,5 +10,7 @@ set -a; . ./.env; set +a
 TOKEN="${HF_TOKEN:-${HUGGINGFACE_TOKEN:-}}"
 [ -n "$TOKEN" ] || { echo "no HF_TOKEN / HUGGINGFACE_TOKEN in .env"; exit 1; }
 OR="${OPENROUTER_API_KEY:-${OPEN_ROUTER:-}}"
-{ printf 'HF_TOKEN=%s\n' "$TOKEN"; [ -z "$OR" ] || printf 'OPENROUTER_API_KEY=%s\n' "$OR"; } | ssh -i "$KEY" "root@$IP" "umask 077; cat > $REPO_DIR/.env"
+OR2="${OPENROUTER_API_KEY2:-${OPEN_ROUTER2:-}}"
+{ printf 'HF_TOKEN=%s\n' "$TOKEN"; [ -z "$OR" ] || printf 'OPENROUTER_API_KEY=%s\n' "$OR"
+  [ -z "$OR2" ] || printf 'OPENROUTER_API_KEY2=%s\n' "$OR2"; } | ssh -i "$KEY" "root@$IP" "umask 077; cat > $REPO_DIR/.env"
 echo "wrote $REPO_DIR/.env on $IP"

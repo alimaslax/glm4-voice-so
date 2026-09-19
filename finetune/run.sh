@@ -39,6 +39,7 @@ export SO_MODELS="${SO_MODELS:-/workspace/glm-4-voice/models}"
 if [ -f "$REPO/.env" ]; then set -a; . "$REPO/.env"; set +a; fi
 export HF_TOKEN="${HF_TOKEN:-${HUGGINGFACE_TOKEN:-}}"
 export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-${OPEN_ROUTER:-}}"
+export OPENROUTER_API_KEY2="${OPENROUTER_API_KEY2:-${OPEN_ROUTER2:-}}"
 SS_BUCKET="${SS_BUCKET:-lewenberg/so-single-speaker-transcripts}"
 
 # Judge for resynthesis checks: the fine-tuned MMS once it exists (container path == host path).
@@ -77,7 +78,7 @@ case "$STAGE" in
 esac
 
 DOCKER=(docker run --rm --gpus all --ipc=host --network host --name "so-$STAGE"
-  -e HF_TOKEN -e OPENROUTER_API_KEY -e SO_DATA -e SO_WORK -e SO_MODELS -e HF_HOME=/workspace/cache -e PYTHONUNBUFFERED=1
+  -e HF_TOKEN -e OPENROUTER_API_KEY -e OPENROUTER_API_KEY2 -e SO_DATA -e SO_WORK -e SO_MODELS -e HF_HOME=/workspace/cache -e PYTHONUNBUFFERED=1
   -v /workspace:/workspace -w "$REPO/finetune")
 if [ "$STAGE" = shell ]; then exec "${DOCKER[@]}" -it "$IMAGE" bash; fi
 

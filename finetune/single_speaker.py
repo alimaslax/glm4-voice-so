@@ -171,8 +171,10 @@ def paths(row):
 
 
 def transcribe(a):
-    key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPEN_ROUTER")
-    if not key:
+    # One OpenRouter key is queued server-side at ~8 clips/s; extra keys are used round-robin.
+    keys = [k for k in (os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPEN_ROUTER"),
+                        os.environ.get("OPENROUTER_API_KEY2") or os.environ.get("OPEN_ROUTER2")) if k]
+    if not keys:
         raise SystemExit("OPENROUTER_API_KEY not set (put OPEN_ROUTER / OPENROUTER_API_KEY in .env)")
     rows = read_jsonl(OUT / "plan.jsonl")
     todo, stats = [], Counter()
@@ -187,12 +189,13 @@ def transcribe(a):
     if a.limit:
         todo = sorted(todo, key=lambda r: hashlib.sha1(r["id"].encode()).hexdigest())[:a.limit]   # stable spread
     hours = sum(r["dur"] for r in todo) / 3600
-    L.info("%s; sending %d clips, %.2f h, ~$%.2f, %d workers", dict(stats), len(todo), hours,
-           hours * COST_PER_HOUR_USD, a.workers)
+    L.info("%s; sending %d clips, %.2f h, ~$%.2f, %d workers, %d key(s)", dict(stats), len(todo), hours,
+           hours * COST_PER_HOUR_USD, a.workers, len(keys))
     lock, done = threading.Lock(), Counter()
     t0 = time.time()
 
-    def one(r):
+    def one(i, r):
+        key = keys[i % len(keys)]
         resp, marker = paths(r)
         wav = wav_bytes(r)
         for attempt in range(6):
@@ -217,7 +220,7 @@ def transcribe(a):
         return "rate_limited", 0
 
     with ThreadPoolExecutor(a.workers) as ex:
-        futs = [ex.submit(one, r) for r in todo]
+        futs = [ex.submit(one, i, r) for i, r in enumerate(todo)]
         for i, f in enumerate(as_completed(futs), 1):
             status, dur = f.result()
             with lock:
