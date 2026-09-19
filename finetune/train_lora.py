@@ -86,8 +86,11 @@ def main():
     sft = WORK / "somali" / "sft"
     train = load_from_disk(str(sft / "train"))
     val = load_from_disk(str(sft / "val"))
-    evals = {t: val.filter(lambda r, t=t: r["task"] == t).select(
-        range(min(cfg["eval_per_task"], sum(1 for x in val["task"] if x == t)))) for t in ("asr", "tts", "dialogue")}
+    evals = {}
+    for task in ("asr", "tts", "dialogue"):
+        sub = val.filter(lambda r, task=task: r["task"] == task)
+        if len(sub):
+            evals[task] = sub.select(range(min(cfg["eval_per_task"], len(sub))))
     L.info("train %d samples; eval %s", len(train), {k: len(v) for k, v in evals.items()})
 
     t = cfg["train"]
@@ -99,14 +102,14 @@ def main():
         gradient_accumulation_steps=t["gradient_accumulation_steps"],
         learning_rate=t["learning_rate"], lr_scheduler_type=t["lr_scheduler_type"],
         warmup_ratio=t["warmup_ratio"], weight_decay=t["weight_decay"], max_grad_norm=t["max_grad_norm"],
-        logging_steps=t["logging_steps"], eval_strategy="steps", eval_steps=t["eval_steps"],
+        logging_steps=t["logging_steps"], eval_strategy="steps" if evals else "no", eval_steps=t["eval_steps"],
         save_strategy="steps", save_steps=t["save_steps"], save_total_limit=t["save_total_limit"],
         dataloader_num_workers=t["dataloader_num_workers"], group_by_length=True, length_column_name="length",
         remove_unused_columns=False, report_to=["tensorboard"], logging_dir=str(out_dir / "tb"),
         prediction_loss_only=True,      # never gather [B, T, 168960] logits during eval
         gradient_checkpointing=False,   # enabled on the model above (remote code handles it itself)
     )
-    trainer = build_trainer_cls()(model=model, args=args, train_dataset=train, eval_dataset=evals,
+    trainer = build_trainer_cls()(model=model, args=args, train_dataset=train, eval_dataset=evals or None,
                                   data_collator=Collator(tok.pad_token_id))
     has_ckpt = any(out_dir.glob("checkpoint-*"))
     trainer.train(resume_from_checkpoint=True if has_ckpt else None)
