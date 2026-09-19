@@ -23,7 +23,7 @@ def main():
     p.add_argument("--seed", type=int, default=1234)
     a = p.parse_args()
 
-    from datasets import Dataset
+    from datasets import Dataset, Features, Sequence, Value
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(str(LLM_PATH), trust_remote_code=True)
     g = GLMFormat(tok)
@@ -65,7 +65,9 @@ def main():
     out = WORK / "somali" / "sft"
     for split in ("train", "val", "test"):
         part = [{k: v for k, v in r.items() if k != "split"} for r in rows if r["split"] == split]
-        Dataset.from_list(part).save_to_disk(str(out / split))
+        feats = Features(input_ids=Sequence(Value("int32")), labels=Sequence(Value("int32")),
+                         task=Value("string"), length=Value("int32"))
+        Dataset.from_list(part, features=feats).save_to_disk(str(out / split))
         L.info("%s: %d samples, %d tokens", split, len(part), sum(r["length"] for r in part))
     L.info("stats: %s", dict(stats))
 
