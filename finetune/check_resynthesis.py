@@ -111,6 +111,13 @@ def main():
                 mel_l1.append(dict(l1=float((m[:n] - mel_gen[:n]).abs().mean()),
                                    mean_ours=float(m.mean()), mean_flow=float(mel_gen.mean()),
                                    frames_ours=len(m), frames_flow=len(mel_gen)))
+        # one file to listen straight through: beep, original, pause, resynthesis, gap, next clip...
+        beep = 0.2 * np.sin(2 * np.pi * 880 * np.arange(int(0.15 * 22050)) / 22050)
+        allab = []
+        for f in sorted((out / name).glob("*.ab.wav")):
+            z, _ = sf.read(str(f))
+            allab += [beep, np.zeros(int(0.4 * 22050)), z, np.zeros(int(1.2 * 22050))]
+        sf.write(str(out / f"ALL_{len(items)}_{name}_AB.wav"), np.concatenate(allab), 22050)
         report[name] = dict(
             n=len(items),
             asr_cer_original=round(jiwer.cer(refs, hyp_orig), 4),
