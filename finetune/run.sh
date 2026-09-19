@@ -26,6 +26,7 @@
 #   resynth_flow    same A/B check with the Omar flow (and the fine-tuned MMS as judge)
 #   publish_flow    private HF repo lewenberg/glm-4-voice-decoder-omar (base commit, then fine-tune)
 #   train_lora      Track A: bf16 LoRA on glm-4-voice-9b
+#   first_pass      held-out Somali dialogue/TTS/ASR, stock vs LoRA, voiced by Omar's decoder -> first_pass/
 #   publish_lora    private HF repo lewenberg/glm-4-voice-9b-somali-lora (base pointer, then adapter)
 #   ckpt_sync       back up runs/ to private bucket lewenberg/so-train-checkpoints every 10 min (ckpt_pull restores)
 #   shell           interactive shell in the container
@@ -76,6 +77,7 @@ case "$STAGE" in
   train_flow)      CMD=(python -u train_flow.py) ;;
   train_lora)      CMD=(python -u train_lora.py) ;;
   publish_lora)    CMD=(python -u publish_hf.py lora) ;;
+  first_pass)      CMD=(python -u first_pass.py) ;;                # [--lora dir|hf-id] [--n 8]
   ckpt_sync)       CMD=(bash ckpt_sync.sh) ;;             # loop: runs/ -> private bucket (ONCE=1 for one pass)
   ckpt_pull)       CMD=(sh -c "hf buckets sync hf://buckets/\${CKPT_BUCKET:-lewenberg/so-train-checkpoints}/runs \$SO_WORK/runs") ;;
   shell)           CMD=(bash) ;;
