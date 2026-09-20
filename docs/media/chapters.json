@@ -1,0 +1,30 @@
+{
+  "total": 131.85,
+  "chapters": [
+    {
+      "scene": "S1Pipeline",
+      "title": "The chain",
+      "start": 0.0
+    },
+    {
+      "scene": "S2Tokenizer",
+      "title": "The tokenizer",
+      "start": 25.3
+    },
+    {
+      "scene": "S4LoRA",
+      "title": "The adapter",
+      "start": 51.45
+    },
+    {
+      "scene": "S3Interleave",
+      "title": "The format",
+      "start": 80.4
+    },
+    {
+      "scene": "S5Voice",
+      "title": "Two tracks",
+      "start": 105.85
+    }
+  ]
+}

@@ -29,6 +29,7 @@
 #   publish_flow    private HF repo lewenberg/glm-4-voice-decoder-omar (base commit, then fine-tune)
 #   train_lora      Track A: bf16 LoRA on glm-4-voice-9b
 #   first_pass      held-out Somali dialogue/TTS/ASR, stock vs LoRA, voiced by Omar's decoder -> first_pass/
+#   merge_lora      fold a LoRA into the 9B -> plain model dir the demo can load (--scale blends it)
 #   publish_lora    private HF repo lewenberg/glm-4-voice-9b-somali-lora (base pointer, then adapter)
 #   ckpt_sync       back up runs/ to private bucket lewenberg/so-train-checkpoints every 10 min (ckpt_pull restores)
 #   shell           interactive shell in the container
@@ -57,6 +58,8 @@ case "$STAGE" in
   selftest)        CMD=(python -u selftest.py) ;;
   prepare_somali)  CMD=(python -u prepare_somali.py) ;;
   prepare_omar)    CMD=(python -u prepare_omar.py) ;;
+  gen_qa)          CMD=(python -u gen_qa.py) ;;                   # --n 1200 --out $SO_WORK/qa/qa.jsonl --sheet
+  prepare_qa)      CMD=(python -u prepare_qa.py) ;;               # --qa ... --questions DIR --answers DIR
   tokenize_somali) CMD=(python -u tokenize_audio.py --corpus somali) ;;
   tokenize_omar)   CMD=(python -u tokenize_audio.py --corpus omar) ;;
   build_sft)       CMD=(python -u build_sft.py) ;;
@@ -64,6 +67,7 @@ case "$STAGE" in
   prepare_asr)     CMD=(python -u prepare_asr.py) ;;
   prepare_asr_ext) CMD=(python -u prepare_asr_ext.py) ;;
   scribe_transcribe) CMD=(python -u scribe_windows.py) ;;     # [--workers N] [--limit N] [--retry-failed]
+  scribe_retry_empty) CMD=(python -u scribe_retry_empty.py) ;;  # empty windows again, language auto; probe first
   scribe_push)     CMD=(sh -c "while true; do hf buckets sync \$SO_WORK/scribe hf://buckets/$T_BUCKET/scribe --exclude '*.request.json' --exclude '*.tmp' --format quiet && echo \$(date -u +%FT%TZ) synced scribe; [ \"\${ONCE:-0}\" = 1 ] && break; sleep 600; done") ;;
   ss_plan)         CMD=(python -u single_speaker.py plan) ;;
   ss_transcribe)   CMD=(python -u single_speaker.py transcribe) ;;   # [--limit N] [--workers N] [--retry-failed]
@@ -81,6 +85,7 @@ case "$STAGE" in
   publish_flow)    CMD=(python -u publish_hf.py flow) ;;
   train_flow)      CMD=(python -u train_flow.py) ;;
   train_lora)      CMD=(python -u train_lora.py) ;;
+  merge_lora)      CMD=(python -u merge_lora.py) ;;                # --lora DIR --out DIR [--scale 0.3]
   publish_lora)    CMD=(python -u publish_hf.py lora) ;;
   first_pass)      CMD=(python -u first_pass.py) ;;                # [--lora dir|hf-id] [--n 8]
   ckpt_sync)       CMD=(bash ckpt_sync.sh) ;;             # loop: runs/ -> private bucket (ONCE=1 for one pass)
@@ -90,7 +95,7 @@ case "$STAGE" in
 esac
 
 DOCKER=(docker run --rm --gpus all --ipc=host --network host --name "so-$STAGE"
-  -e HF_TOKEN -e ELEVENLABS_API_KEY -e SO_TRANSCRIPTS -e ONCE -e CKPT_BUCKET -e CKPT_EVERY_MIN -e OPENROUTER_API_KEY -e OPENROUTER_API_KEY2 -e SO_DATA -e SO_WORK -e SO_MODELS -e HF_HOME=/workspace/cache -e PYTHONUNBUFFERED=1
+  -e PYTORCH_CUDA_ALLOC_CONF -e HF_TOKEN -e ELEVENLABS_API_KEY -e ELEVENLABS_API_KEY2 -e SO_TRANSCRIPTS -e SO_SOMALI -e SO_ASR -e SO_GRAD_CKPT -e ONCE -e CKPT_BUCKET -e CKPT_EVERY_MIN -e OPENROUTER_API_KEY -e OPENROUTER_API_KEY2 -e SO_DATA -e SO_WORK -e SO_MODELS -e HF_HOME=/workspace/cache -e PYTHONUNBUFFERED=1
   -v /workspace:/workspace -w "$REPO/finetune")
 if [ "$STAGE" = shell ]; then exec "${DOCKER[@]}" -it "$IMAGE" bash; fi
 

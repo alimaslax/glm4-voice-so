@@ -6,12 +6,13 @@ Output: $SO_WORK/runs/<run_name>/  (Trainer checkpoints = adapter only, tensorbo
 Re-running resumes from the last checkpoint automatically.
 """
 import argparse
+import os
 from pathlib import Path
 
 import torch
 import yaml
 
-from common import allow_trainer_resume, LLM_PATH, WORK, log
+from common import allow_trainer_resume, LLM_PATH, SOMALI, WORK, log
 
 L = log("train_lora")
 
@@ -63,7 +64,7 @@ def main():
     out_dir = WORK / "runs" / run
 
     from datasets import load_from_disk
-    from peft import LoraConfig, get_peft_model
+    from peft import LoraConfig, PeftModel, get_peft_model
     from transformers import AutoModel, AutoTokenizer, TrainingArguments, set_seed
     set_seed(cfg["seed"])
 
@@ -75,15 +76,25 @@ def main():
         L.warning("attn_implementation=%s rejected (%s); using eager", cfg["attn_implementation"], e)
         model = AutoModel.from_pretrained(str(LLM_PATH), **kw)
     model.config.use_cache = False
-    model.gradient_checkpointing_enable()
+    # Recomputing activations saves memory but costs ~25-30% compute; off when the GPU has room
+    # (SO_GRAD_CKPT=0 turns it off, =1 forces it on).
+    grad_ckpt = os.environ.get("SO_GRAD_CKPT", str(cfg.get("gradient_checkpointing", True))).lower() in ("1", "true")
+    L.info("gradient checkpointing: %s", grad_ckpt)
+    if grad_ckpt:
+        model.gradient_checkpointing_enable()
     model.enable_input_require_grads()
     lc = cfg["lora"]
-    model = get_peft_model(model, LoraConfig(r=lc["r"], lora_alpha=lc["alpha"], lora_dropout=lc["dropout"],
-                                             target_modules=lc["target_modules"], bias="none",
-                                             task_type="CAUSAL_LM"))
+    if cfg.get("init_adapter"):     # continue training an existing adapter (same r/targets) on new data
+        init = WORK / cfg["init_adapter"]
+        L.info("init adapter from %s", init)
+        model = PeftModel.from_pretrained(model, str(init), is_trainable=True)
+    else:
+        model = get_peft_model(model, LoraConfig(r=lc["r"], lora_alpha=lc["alpha"], lora_dropout=lc["dropout"],
+                                                 target_modules=lc["target_modules"], bias="none",
+                                                 task_type="CAUSAL_LM"))
     model.print_trainable_parameters()
 
-    sft = WORK / "somali" / "sft"
+    sft = SOMALI / "sft"
     train = load_from_disk(str(sft / "train"))
     val = load_from_disk(str(sft / "val"))
     evals = {}

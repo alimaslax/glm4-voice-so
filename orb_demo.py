@@ -59,6 +59,16 @@ SYSTEM_PROMPT = (
     "Keep answers short and conversational. "
     "Reply naturally and concisely in an interleaved manner, with 13 text tokens followed by 26 audio tokens."
 )
+SOMALI_PROMPT = (
+    "User will provide you with an instruction. "
+    "You are a Somali-speaking voice assistant. You must always reply strictly in fluent, natural Somali. "
+    "Never reply in English or Chinese. Keep answers short and conversational. "
+    "Reply naturally and concisely in an interleaved manner, with 13 text tokens followed by 26 audio tokens."
+)
+if os.environ.get("GLM_LANG", "").lower() in ("so", "som", "somali"):
+    SYSTEM_PROMPT = SOMALI_PROMPT
+if os.environ.get("GLM_SYSTEM_PROMPT"):
+    SYSTEM_PROMPT = os.environ["GLM_SYSTEM_PROMPT"]
 
 
 def clean_text(tokenizer, ids):
@@ -78,6 +88,8 @@ parser.add_argument("--static-dir", default="static")
 args = parser.parse_args()
 
 os.makedirs(args.capture_dir, exist_ok=True)
+# Every prompt the model is sent and every completion it returns, for replaying a bad turn exactly.
+TURN_LOG = os.environ.get("GLM_TURN_LOG", os.path.join(args.capture_dir, "turns.jsonl"))
 device = "cuda"
 tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
 speech_encoder = WhisperVQEncoder.from_pretrained(args.tokenizer_path).eval().to(device)
@@ -125,7 +137,7 @@ class Convo:
 
     def __init__(self):
         self.turns = []  # committed turn records (see Session._run_turn)
-        self.cfg = {"temperature": 0.2, "top_p": 0.8, "max_tokens": 600,
+        self.cfg = {"temperature": float(os.environ.get("GLM_TEMPERATURE", 0.8)), "top_p": 0.9, "max_tokens": 600,
                     "keep_full": KEEP_FULL_TURNS, "marker": 1}  # last two: history-compaction knobs
 
 
@@ -155,6 +167,15 @@ class Session:
 
     def emit_json(self, **kw):
         self.emit(json.dumps(kw))
+
+    # ---- diagnostics
+    def log_turn(self, rec):
+        """Append one prompt/reply record so a bad turn can be replayed exactly as the model saw it."""
+        try:
+            with open(TURN_LOG, "a") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except Exception as e:  # noqa: BLE001
+            print("turn log failed:", repr(e), flush=True)
 
     # ---- conversation
     def render(self, turn, compact):
@@ -224,6 +245,10 @@ class Session:
                 n_user = len(tokenizer(text)["input_ids"]) + 8
             base, prompt = self.build_prompt(user_input)
             t_tok = time.perf_counter()
+            self.log_turn(dict(event="prompt", turn=tid, ts=time.time(), history_turns=len(self.turns),
+                               user_kind="audio" if pcm is not None else "text",
+                               user_text=text or job.get("user_text"), user_tokens=n_user,
+                               prompt_chars=len(prompt), prompt=prompt))
 
             resp = requests.post(
                 f"{MODEL_URL}/generate_stream",
@@ -303,6 +328,11 @@ class Session:
                         "full": f"<|user|>\n{user_input}<|assistant|>streaming_transcription\n{completion}",
                         "full_n": n_user + len(complete_ids), "asst_text": final_text, "asst_n": len(text_ids) + 6,
                     })
+            self.log_turn(dict(event="reply", turn=tid, ts=time.time(), text=final_text,
+                               n_text_tokens=len(text_ids), n_audio_tokens=len(complete_ids) - len(text_ids),
+                               audio_ms=audio_ms, interrupted=interrupted, wav=wav_path,
+                               completion=tokenizer.decode(complete_ids, spaces_between_special_tokens=False)
+                               if complete_ids else ""))
             if not interrupted and text_ids and not speeches:
                 print(f"SILENT REPLY turn {tid}: text but no audio tokens, history turns={len(self.turns)}", flush=True)
             self.send_ctx()

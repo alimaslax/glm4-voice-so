@@ -12,6 +12,7 @@ python model_server.py --host localhost --model-path THUDM/glm-4-voice-9b --port
 """
 import argparse
 import json
+import os
 from queue import Queue
 from threading import Event, Thread
 
@@ -111,6 +112,10 @@ class ModelWorker:
         temperature = float(params.get("temperature", 1.0))
         top_p = float(params.get("top_p", 1.0))
         max_new_tokens = int(params.get("max_new_tokens", 256))
+        # Without do_sample the temperature/top_p above are ignored: greedy decoding, which a LoRA fine-tuned on
+        # short conversational turns falls into loops with ("Waa yahay. Waa yahay. ...").
+        repetition_penalty = float(params.get("repetition_penalty", os.environ.get("GLM_REPETITION_PENALTY", 1.1)))
+        do_sample = temperature > 0
 
         global _current_cancel
         _current_cancel.set()  # abort any previous generation still running
@@ -124,8 +129,10 @@ class ModelWorker:
             kwargs=dict(
                 **inputs,
                 max_new_tokens=int(max_new_tokens),
-                temperature=float(temperature),
-                top_p=float(top_p),
+                do_sample=do_sample,
+                temperature=float(temperature) if do_sample else None,
+                top_p=float(top_p) if do_sample else None,
+                repetition_penalty=repetition_penalty,
                 streamer=streamer,
                 stopping_criteria=StoppingCriteriaList([CancelCriteria(cancel)]),
             )

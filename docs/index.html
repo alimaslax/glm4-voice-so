@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Somali GLM-4-Voice</title>
+<meta name="description" content="How we taught GLM-4-Voice to understand and speak Somali in Omar's voice: what we froze, what we trained, the data we used, what went wrong, and every training round.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#ffffff; --bg-soft:#f6f8fa; --bg-sunk:#eef1f4; --fg:#1f2328; --fg-soft:#3d444d; --muted:#656d76;
+  --border:#d8dee4; --border-soft:#e8ecf0; --link:#0969da;
+  --frozen:#6e7781; --frozen-bg:#eef0f2;
+  --lora:#8250df; --lora-bg:#f3eefc;
+  --full:#1a7f37; --full-bg:#e9f6ec;
+  --judge:#bf5b04; --judge-bg:#fdf1e6;
+  --text-tok:#0969da; --audio-tok:#d4760a;
+  --bad:#cf222e; --bad-bg:#fdecec; --good:#1a7f37;
+  --shadow:0 1px 2px rgba(31,35,40,.06),0 3px 12px rgba(31,35,40,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d1117; --bg-soft:#151b23; --bg-sunk:#1b222c; --fg:#e6edf3; --fg-soft:#c9d1d9; --muted:#9198a1;
+    --border:#30363d; --border-soft:#232a33; --link:#4493f8;
+    --frozen:#9198a1; --frozen-bg:#1d232b;
+    --lora:#b391f5; --lora-bg:#231a38;
+    --full:#3fb950; --full-bg:#12261a;
+    --judge:#f0883e; --judge-bg:#2a1c10;
+    --text-tok:#4493f8; --audio-tok:#f0a04b;
+    --bad:#ff7b72; --bad-bg:#2d1517; --good:#3fb950;
+    --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d1117; --bg-soft:#151b23; --bg-sunk:#1b222c; --fg:#e6edf3; --fg-soft:#c9d1d9; --muted:#9198a1;
+  --border:#30363d; --border-soft:#232a33; --link:#4493f8;
+  --frozen:#9198a1; --frozen-bg:#1d232b;
+  --lora:#b391f5; --lora-bg:#231a38;
+  --full:#3fb950; --full-bg:#12261a;
+  --judge:#f0883e; --judge-bg:#2a1c10;
+  --text-tok:#4493f8; --audio-tok:#f0a04b;
+  --bad:#ff7b72; --bad-bg:#2d1517; --good:#3fb950;
+  --shadow:none;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:72px}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--link);text-decoration:none}
+a:hover{text-decoration:underline}
+code,.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em}
+code{background:var(--bg-sunk);padding:.12em .4em;border-radius:5px;word-break:break-word}
+h1,h2,h3{font-family:"Source Serif 4",Georgia,serif;letter-spacing:-.01em;line-height:1.2;color:var(--fg)}
+h2{font-size:1.9rem;margin:0 0 .3rem}
+h3{font-size:1.25rem;margin:2rem 0 .5rem}
+p{margin:.7rem 0}
+.lede{font-size:1.1rem;color:var(--fg-soft)}
+.muted{color:var(--muted)}
+.small{font-size:.88rem}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--border-soft)}
+.topbar .in{max-width:1180px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:12px}
+.brand{font-weight:600;color:var(--fg);display:flex;align-items:center;gap:9px;white-space:nowrap}
+.brand .dot{width:22px;height:22px;border-radius:50%;background:conic-gradient(var(--lora),var(--full),var(--audio-tok),var(--lora));flex:none}
+.topbar .sp{flex:1}
+.topbar a.gh{color:var(--fg-soft);font-size:.9rem;white-space:nowrap}
+.themebtn{white-space:nowrap;border:1px solid var(--border);background:var(--bg-soft);color:var(--fg-soft);border-radius:8px;padding:5px 10px;font:inherit;font-size:.85rem;cursor:pointer}
+
+/* hero */
+.hero{border-bottom:1px solid var(--border-soft);background:
+  radial-gradient(900px 300px at 15% -10%,color-mix(in srgb,var(--lora) 14%,transparent),transparent 70%),
+  radial-gradient(700px 260px at 95% 0%,color-mix(in srgb,var(--full) 12%,transparent),transparent 70%)}
+.hero .in{max-width:1180px;margin:0 auto;padding:56px 16px 44px}
+.eyebrow{font-size:.8rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:600}
+.hero h1{font-size:clamp(2.1rem,5vw,3.4rem);margin:.4rem 0 .6rem;max-width:18ch}
+.hero .lede{max-width:62ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:3px 11px;font-size:.82rem;color:var(--fg-soft)}
+.pill i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.live i{background:var(--good);box-shadow:0 0 0 0 var(--good);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--good) 60%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@media (prefers-reduced-motion:reduce){.live i{animation:none}html{scroll-behavior:auto}}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:30px}
+.stat{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+.stat b{display:block;white-space:nowrap;font-size:clamp(1.2rem,2.4vw,1.55rem);font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stat span{font-size:.84rem;color:var(--muted);line-height:1.4;display:block}
+.stat .arrow{display:inline;color:var(--muted);font-weight:400;margin:0 2px}
+
+/* layout */
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px}
+nav.toc{position:sticky;top:76px;align-self:start;padding:36px 0;font-size:.9rem}
+nav.toc ol{list-style:none;margin:0;padding:0;border-left:1px solid var(--border)}
+nav.toc a{display:block;padding:5px 0 5px 14px;margin-left:-1px;border-left:2px solid transparent;color:var(--muted)}
+nav.toc a:hover{color:var(--fg);text-decoration:none}
+nav.toc a.on{color:var(--fg);border-left-color:var(--lora);font-weight:500}
+main{min-width:0;padding-bottom:80px}
+section{padding:48px 0 12px;border-bottom:1px solid var(--border-soft)}
+section:last-child{border-bottom:0}
+.num{font-family:"JetBrains Mono",monospace;font-size:.8rem;color:var(--lora);font-weight:500;letter-spacing:.04em}
+@media (max-width:900px){.wrap{grid-template-columns:1fr;gap:0}nav.toc{display:none}}
+
+/* callouts */
+.callout{border:1px solid var(--border);border-left:4px solid var(--lora);background:var(--bg-soft);border-radius:8px;padding:12px 16px;margin:1.2rem 0}
+.callout.why{border-left-color:var(--link)}
+.callout.oops{border-left-color:var(--bad)}
+.callout.win{border-left-color:var(--good)}
+.callout > strong:first-child{display:block;font-size:.8rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:2px}
+
+/* pipeline */
+.pipe{display:grid;grid-template-columns:auto 1fr 1.2fr 1fr 1fr auto;align-items:stretch;gap:0;margin:1.6rem 0 .6rem}
+.pipe .end{display:flex;align-items:center;justify-content:center;font-size:.8rem;color:var(--muted);padding:0 6px;writing-mode:vertical-rl;transform:rotate(180deg)}
+.stage{position:relative;border:1.5px solid var(--c);background:var(--cb);border-radius:12px;padding:12px 12px 12px;margin:0 9px;display:flex;flex-direction:column;gap:4px}
+.stage:not(:last-of-type)::after{content:"";position:absolute;right:-12px;top:50%;width:9px;height:9px;border-top:2px solid var(--muted);border-right:2px solid var(--muted);transform:translateY(-50%) rotate(45deg)}
+.stage .tag{align-self:flex-start;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--c);border:1px solid var(--c);border-radius:5px;padding:0 5px}
+.stage h4{margin:2px 0 0;font-size:.98rem;font-family:Inter,sans-serif}
+.stage p{margin:0;font-size:.8rem;color:var(--fg-soft);line-height:1.45}
+.stage .io{margin-top:auto;padding-top:6px;font-size:.72rem;color:var(--muted);font-family:"JetBrains Mono",monospace}
+.frozen{--c:var(--frozen);--cb:var(--frozen-bg)}
+.lora{--c:var(--lora);--cb:var(--lora-bg)}
+.full{--c:var(--full);--cb:var(--full-bg)}
+.judge{--c:var(--judge);--cb:var(--judge-bg)}
+.stage.frozen{border-style:dashed}
+.judgebar{display:flex;gap:12px;align-items:center;border:1.5px solid var(--judge);background:var(--judge-bg);border-radius:12px;padding:10px 14px;font-size:.88rem;margin:0 9px}
+.judgebar .tag{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--judge);border:1px solid var(--judge);border-radius:5px;padding:0 5px;flex:none}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:.82rem;color:var(--muted);margin:.8rem 0 0 9px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:14px;height:10px;border-radius:3px;border:1.5px solid var(--c);background:var(--cb);display:inline-block}
+@media (max-width:760px){
+  .pipe{grid-template-columns:1fr}
+  .pipe .end{writing-mode:horizontal-tb;transform:none;padding:4px}
+  .stage{margin:0 0 18px}
+  .stage:not(:last-of-type)::after{right:auto;left:50%;top:auto;bottom:-14px;transform:translateX(-50%) rotate(135deg)}
+  .judgebar{margin:0}
+}
+
+/* component cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin:1.2rem 0}
+.card{border:1px solid var(--border);border-top:3px solid var(--c);border-radius:10px;padding:14px 16px;background:var(--bg)}
+.card h4{margin:0 0 2px;font-size:1rem}
+.card .st{font-size:.78rem;font-weight:600;color:var(--c);text-transform:uppercase;letter-spacing:.06em}
+.card p{font-size:.9rem;margin:.5rem 0 0;color:var(--fg-soft)}
+.card ul{margin:.5rem 0 0;padding-left:1.1rem;font-size:.9rem;color:var(--fg-soft)}
+.card li{margin:.2rem 0}
+
+/* token strip */
+.strip{display:flex;flex-wrap:wrap;gap:2px;margin:.8rem 0 .3rem}
+.strip i{width:11px;height:18px;border-radius:2px;display:block}
+.strip i.t{background:var(--text-tok)}
+.strip i.a{background:var(--audio-tok)}
+.strip i.gap{width:8px;background:transparent}
+.keyrow{display:flex;gap:18px;font-size:.82rem;color:var(--muted);flex-wrap:wrap}
+.keyrow span{display:inline-flex;align-items:center;gap:6px}
+.keyrow i{width:11px;height:14px;border-radius:2px;display:inline-block}
+
+.prompt{font-family:"JetBrains Mono",monospace;font-size:.8rem;background:var(--bg-soft);border:1px solid var(--border);border-radius:10px;padding:14px;overflow-x:auto;line-height:1.9;white-space:nowrap}
+.prompt .m{color:var(--muted);background:var(--bg-sunk);border-radius:4px;padding:1px 3px}
+.prompt .l{color:var(--full);background:var(--full-bg);border-radius:4px;padding:1px 3px;font-weight:500}
+
+/* tables */
+.tw{overflow-x:auto;margin:1rem 0;border:1px solid var(--border);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--border-soft);vertical-align:top}
+th{background:var(--bg-soft);font-weight:600;font-size:.8rem;color:var(--fg-soft);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.best{font-weight:700;color:var(--good)}
+
+/* funnel */
+.funnel{margin:1.2rem 0;display:flex;flex-direction:column;gap:8px}
+.frow{display:grid;grid-template-columns:minmax(120px,210px) 1fr 64px;gap:12px;align-items:center;font-size:.86rem}
+.frow .lab{color:var(--fg-soft);line-height:1.3}
+.frow .bar{height:16px;background:var(--bg-sunk);border-radius:4px;overflow:hidden}
+.frow .bar b{display:block;height:100%;background:var(--c);border-radius:4px}
+.frow .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.flab{font-size:.78rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:6px}
+
+/* timeline */
+.tl{position:relative;margin:1.6rem 0 0;padding-left:30px}
+.tl::before{content:"";position:absolute;left:9px;top:6px;bottom:6px;width:2px;background:var(--border)}
+.ev{position:relative;margin:0 0 26px}
+.ev::before{content:"";position:absolute;left:-27px;top:6px;width:14px;height:14px;border-radius:50%;background:var(--bg);border:3px solid var(--c,var(--muted))}
+.ev.now::before{background:var(--good);border-color:var(--good);box-shadow:0 0 0 4px color-mix(in srgb,var(--good) 22%,transparent)}
+.ev .when{font-size:.76rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--c,var(--muted))}
+.ev h4{margin:.1rem 0 .3rem;font-size:1.08rem}
+.ev p{margin:.3rem 0;font-size:.93rem;color:var(--fg-soft)}
+.ev .kv{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.ev .kv span{font-size:.76rem;font-family:"JetBrains Mono",monospace;background:var(--bg-sunk);border-radius:5px;padding:2px 7px;color:var(--fg-soft)}
+
+/* progress */
+.prog{margin:1rem 0 .4rem;height:10px;border-radius:999px;background:var(--bg-sunk);overflow:hidden}
+.prog b{display:block;height:100%;width:35.6%;background:linear-gradient(90deg,var(--lora),var(--full));border-radius:999px}
+.progmeta{display:flex;justify-content:space-between;font-size:.82rem;color:var(--muted);font-variant-numeric:tabular-nums;gap:10px;flex-wrap:wrap}
+
+/* deltas */
+.delta{display:grid;grid-template-columns:1fr 1fr;gap:0;align-items:center;width:160px;height:14px;position:relative}
+.delta::before{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:var(--border)}
+.delta b{display:block;height:10px;border-radius:2px}
+.delta .neg{justify-self:end;background:var(--good)}
+.delta .pos{grid-column:2;justify-self:start;background:var(--bad)}
+
+/* examples */
+.ex{border:1px solid var(--border);border-radius:10px;margin:1rem 0;overflow:hidden}
+.ex .h{background:var(--bg-soft);padding:8px 14px;font-size:.8rem;color:var(--muted);border-bottom:1px solid var(--border-soft);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.ex .r{display:grid;grid-template-columns:110px 1fr;gap:12px;padding:9px 14px;border-bottom:1px solid var(--border-soft);font-size:.9rem}
+.ex .r:last-child{border-bottom:0}
+.ex .r .k{font-size:.76rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding-top:2px}
+.ex .r.stock .v{color:var(--bad)}
+.ex .r.ours .v{color:var(--good);font-weight:500}
+.ex .r .v small{color:var(--muted);font-weight:400}
+@media (max-width:560px){.ex .r{grid-template-columns:1fr;gap:2px}}
+
+/* oops list */
+.oops{display:grid;gap:12px;margin:1.2rem 0}
+.oop{display:grid;grid-template-columns:34px 1fr;gap:12px;border:1px solid var(--border);border-radius:10px;padding:14px 16px;background:var(--bg)}
+.oop .ic{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-weight:700;font-size:.9rem;background:var(--bad-bg);color:var(--bad)}
+.oop.ok .ic{background:var(--full-bg);color:var(--full)}
+.oop h4{margin:0;font-size:1rem}
+.oop p{margin:.3rem 0 0;font-size:.9rem;color:var(--fg-soft)}
+.oop .fix{margin-top:.45rem;font-size:.86rem;color:var(--fg-soft)}
+.oop .fix b{color:var(--good)}
+
+.switch{display:grid;grid-template-columns:1fr 26px 1fr;gap:8px;align-items:center;border-bottom:1px solid var(--border-soft);padding:12px 0}
+.switch:last-child{border-bottom:0}
+.switch .from{color:var(--muted);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--bad) 60%,transparent)}
+.switch .to{font-weight:600}
+.switch .ar{color:var(--muted);text-align:center}
+.switch .why{grid-column:1/-1;font-size:.87rem;color:var(--fg-soft);margin-top:-2px}
+.swbox{border:1px solid var(--border);border-radius:10px;padding:4px 16px;margin:1rem 0}
+@media (max-width:560px){.switch{grid-template-columns:1fr}.switch .ar{text-align:left;transform:rotate(90deg);width:20px}}
+
+footer{border-top:1px solid var(--border-soft);color:var(--muted);font-size:.86rem}
+footer .in{max-width:1180px;margin:0 auto;padding:28px 16px}
+
+/* animations (rendered with manim, see docs/anim/) */
+.film{margin:1.6rem 0;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--bg-soft);box-shadow:var(--shadow)}
+.film .screen{position:relative;background:var(--bg);aspect-ratio:16/9}
+.film video{display:block;width:100%;height:100%;object-fit:contain;background:var(--bg)}
+.film .bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--border-soft);background:var(--bg-soft);font-size:.82rem;color:var(--muted)}
+.film .bar .t{font-weight:600;color:var(--fg-soft)}
+.film .bar .sp{flex:1}
+.film button{border:1px solid var(--border);background:var(--bg);color:var(--fg-soft);border-radius:7px;padding:3px 10px;font:inherit;font-size:.8rem;cursor:pointer;white-space:nowrap}
+.film button:hover{border-color:var(--lora);color:var(--fg)}
+.film figcaption{padding:11px 14px;font-size:.88rem;color:var(--fg-soft);border-top:1px solid var(--border-soft);background:var(--bg)}
+.film .big{position:absolute;inset:0;display:grid;place-items:center;border:0;border-radius:0;background:color-mix(in srgb,var(--bg) 45%,transparent);color:var(--fg);font-size:1rem;padding:0}
+.film .big span{border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:10px 22px;box-shadow:var(--shadow);font-weight:600}
+.film.playing .big{display:none}
+.film .chapters{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-top:1px solid var(--border-soft);background:var(--bg)}
+.film .chapters button{display:inline-flex;gap:7px;align-items:baseline}
+.film .chapters button .n{font-family:"JetBrains Mono",monospace;font-size:.72rem;color:var(--muted)}
+.film .chapters button.on{border-color:var(--lora);color:var(--fg);background:var(--lora-bg)}
+.film .time{font-variant-numeric:tabular-nums}
+.watch{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);background:var(--bg-soft);color:var(--fg-soft);border-radius:9px;padding:7px 13px;font:inherit;font-size:.88rem;cursor:pointer;margin:.6rem 0 .2rem}
+.watch:hover{border-color:var(--lora);color:var(--fg)}
+.watch .n{font-family:"JetBrains Mono",monospace;font-size:.75rem;color:var(--muted)}
+details.transcript{border-top:1px solid var(--border-soft);background:var(--bg);padding:10px 14px;font-size:.88rem}
+details.transcript summary{cursor:pointer;color:var(--fg-soft);font-weight:500}
+details.transcript p{color:var(--fg-soft);margin:.6rem 0}
+details.transcript b{color:var(--fg)}
+.noscript-note{padding:14px;font-size:.88rem;color:var(--muted)}
+@media (max-width:430px){.topbar a.gh{display:none}.topbar .in{gap:8px}.film .bar{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+
+<header class="topbar"><div class="in">
+  <a class="brand" href="#top"><span class="dot"></span>Somali GLM-4-Voice</a>
+  <span class="sp"></span>
+  <a class="gh" href="https://github.com/alimaslax/glm4-voice-so">GitHub ↗</a>
+  <button class="themebtn" id="theme" type="button" aria-label="Toggle color theme">◐ Theme</button>
+</div></header>
+
+<div class="hero" id="top"><div class="in">
+  <div class="eyebrow">Project log · September 2026</div>
+  <h1>Teaching a voice model to speak Somali</h1>
+  <p class="lede">GLM-4-Voice is a 9-billion-parameter speech-to-speech chat model. Out of the box it answers Somali speech in Chinese or English. This page follows one utterance through all four of its models — animated, box by box — and covers what we froze, what we trained, the data we used, what went wrong, and every training round so far.</p>
+  <div class="meta">
+    <span class="pill live"><i></i>LoRA round 3 training now</span>
+    <span class="pill">1× RTX PRO 6000 Blackwell, 96 GB</span>
+    <span class="pill">3 models trained, 2 frozen</span>
+    <span class="pill">One narrated film, 5 parts</span>
+  </div>
+  <div class="stats">
+    <div class="stat"><b>1.38<span class="arrow">→</span>0.25</b><span>ASR error (CER) of the 9B on held-out Somali, stock vs LoRA</span></div>
+    <div class="stat"><b>0.34<span class="arrow">→</span>0.21</b><span>CER of the MMS Somali judge after full fine-tune</span></div>
+    <div class="stat"><b>0.95<span class="arrow">→</span>0.57</b><span>Val loss of the flow decoder trained on Omar's voice</span></div>
+    <div class="stat"><b>116.1 h</b><span>of Somali TV and podcast segments in the round-3 build</span></div>
+    <div class="stat"><b>61 h</b><span>of verified Omar-only clips (8,163) for the voice</span></div>
+  </div>
+</div></div>
+
+<div class="wrap">
+<nav class="toc" aria-label="Contents"><ol>
+  <li><a href="#architecture">1. Four models, one chain</a></li>
+  <li><a href="#tokens">2. Sound becomes integers</a></li>
+  <li><a href="#trained">3. Frozen vs trained</a></li>
+  <li><a href="#format">4. The training format</a></li>
+  <li><a href="#tracks">5. Content vs voice</a></li>
+  <li><a href="#data">6. The data</a></li>
+  <li><a href="#rounds">7. Training rounds</a></li>
+  <li><a href="#round3">8. Round 3, live</a></li>
+  <li><a href="#results">9. Before and after</a></li>
+  <li><a href="#oops">10. What went wrong</a></li>
+  <li><a href="#switched">11. What we swapped out</a></li>
+  <li><a href="#next">12. What's next</a></li>
+</ol></nav>
+
+<main>
+
+<!-- 1 -->
+<section id="architecture">
+  <div class="num">01</div>
+  <h2>GLM-4-Voice is not one model. It is four.</h2>
+  <p class="lede">Speech goes in, gets turned into tokens, a language model thinks in those tokens, and two more models turn the answer back into sound. Knowing which box does what told us what to train.</p>
+
+  <figure class="film" id="film" data-src="media/overview">
+    <div class="screen">
+      <video playsinline preload="none" controls
+             aria-label="Narrated animation explaining the four models of GLM-4-Voice and how audio tokens pass through them"></video>
+      <button class="big" type="button" aria-label="Play the narrated animation"><span>▶ Play · 2 min</span></button>
+    </div>
+    <noscript><p class="noscript-note">The film picks its light or dark version with JavaScript. Without it, download directly: <a href="media/overview.dark.mp4">dark</a> · <a href="media/overview.light.mp4">light</a>.</p></noscript>
+    <div class="chapters" id="chapters" role="group" aria-label="Chapters"></div>
+    <div class="bar">
+      <span class="t" id="nowplaying">One film, five parts</span>
+      <span class="sp"></span>
+      <span class="time" id="clock">0:00</span>
+      <button class="pp" type="button">Play</button>
+      <button class="rp" type="button">Restart</button>
+    </div>
+    <details class="transcript">
+      <summary>Transcript</summary>
+      <p><b>01 · The chain.</b> GLM-4-Voice is not one model. It is four. A frozen tokenizer turns your speech into discrete audio tokens. The nine billion parameter language model reads those tokens, and answers in text and audio tokens of its own. A flow decoder turns the audio tokens into a mel spectrogram, and a frozen vocoder turns that into sound. Only the middle two boxes were trained.</p>
+      <p><b>02 · The tokenizer.</b> Everything downstream is integers. Eighty milliseconds of audio goes in, and one integer comes out, twelve and a half times a second. Each frame is matched to its nearest entry in a codebook of 16,384 codes, and the index of that entry is the token. A ten second clip becomes 125 integers. They carry what is said, and almost nothing about who said it.</p>
+      <p><b>03 · The adapter.</b> The 9B learns Somali through a 1.7% patch. Its own weights never move. Two thin matrices beside every attention and MLP projection do all the learning: rank 64, 169 million weights, 678 megabytes in total. A full fine-tune would need optimizer state for all nine billion weights, far more than one 96 GB card holds. Before inference, the adapter is folded back into the base model.</p>
+      <p><b>04 · The format.</b> Every training sample uses the exact chat format the demo uses at inference. The prompt is masked out; only the answer is learned. And inside that answer, the model writes 13 text tokens, then the 26 audio tokens that speak them, about two seconds of sound, then the next 13. That rhythm is the one it was pre-trained with, so we teach it Somali without re-teaching it how to stream.</p>
+      <p><b>05 · Two tracks.</b> Content and voice are trained apart. Track A: 116 hours from five Somali channels, many speakers, teaches the language model what is said. Track B: 61 hours of one podcaster teaches the flow decoder how it sounds. Separate data, separate weights. They meet for the first time at inference, where the decoder gives Omar's voice to whatever the model decided to say.</p>
+    </details>
+    <figcaption>Two minutes, narrated, in five parts — the chain, the tokenizer, the adapter, the training format, and the two tracks. Each section below opens at its own part.</figcaption>
+  </figure>
+
+  <div class="pipe" role="img" aria-label="Pipeline: speech tokenizer (frozen), 9B LLM (LoRA), flow decoder (full fine-tune), HiFT vocoder (frozen)">
+    <div class="end">you speak</div>
+    <div class="stage frozen">
+      <span class="tag">Frozen</span>
+      <h4>Speech tokenizer</h4>
+      <p>Whisper-VQ encoder. Turns 16 kHz audio into discrete tokens from a 16,384-entry codebook.</p>
+      <div class="io">audio → 12.5 tok/s</div>
+    </div>
+    <div class="stage lora">
+      <span class="tag">LoRA</span>
+      <h4>GLM-4-Voice 9B</h4>
+      <p>The brain. Reads audio or text tokens, writes text and audio tokens interleaved.</p>
+      <div class="io">tokens → text + audio tok</div>
+    </div>
+    <div class="stage full">
+      <span class="tag">Full fine-tune</span>
+      <h4>Flow decoder</h4>
+      <p>CosyVoice flow matching. Turns audio tokens into a mel spectrogram. <b>The voice is stored here.</b></p>
+      <div class="io">audio tok → 80-bin mel</div>
+    </div>
+    <div class="stage frozen">
+      <span class="tag">Frozen</span>
+      <h4>HiFT vocoder</h4>
+      <p>Turns the mel spectrogram into a waveform. Works for any speaker.</p>
+      <div class="io">mel → 22.05 kHz wav</div>
+    </div>
+    <div class="end">it replies</div>
+  </div>
+  <div class="judgebar"><span class="tag">Side model</span><span><b>MMS-1b-all (Somali)</b>, fully fine-tuned. It is not part of the chain. It listens to what the pipeline says and transcribes it, so we can put a number on "is this understandable Somali?"</span></div>
+  <div class="legend">
+    <span class="frozen"><i></i>Frozen, used as-is</span>
+    <span class="lora"><i></i>Low-rank adapter (1.7% of weights)</span>
+    <span class="full"><i></i>Every weight trained</span>
+    <span class="judge"><i></i>Evaluation judge</span>
+  </div>
+
+  <div class="callout why">
+    <strong>The key idea</strong>
+    The audio tokens carry <em>what</em> is said, and mostly not <em>who</em> is saying it. The flow decoder adds the voice. So we could split the problem in two:
+    teach the LLM Somali from <b>many speakers</b> (Track A), and teach the decoder <b>one voice</b> from Omar alone (Track B).
+    The two tracks use separate data and separate models. They only meet at inference time.
+  </div>
+</section>
+
+<!-- 2 -->
+<section id="tokens">
+  <div class="num">02</div>
+  <h2>Everything downstream is integers</h2>
+  <p class="lede">The first box is the one we never touched, and the one the whole project depended on. If it can't represent Somali sounds, nothing further along can fix that.</p>
+
+  <button class="watch" type="button" data-chapter="2"><span class="n">02</span> ▶ Watch this part — the tokenizer, frame by frame</button>
+
+  <div class="cards">
+    <div class="card" style="--c:var(--audio-tok)">
+      <div class="st">The tokens</div>
+      <h4>Already in the vocabulary</h4>
+      <p><code>&lt;|audio_0|&gt;</code> to <code>&lt;|audio_16383|&gt;</code> are ordinary tokens in the 9B's vocabulary. There was <b>no vocab resize</b> and no new embeddings to train — the model could already read and write them, it just had nothing Somali to say.</p>
+    </div>
+    <div class="card" style="--c:var(--text-tok)">
+      <div class="st">The rate</div>
+      <h4>12.5 tokens per second</h4>
+      <p>A 10-second clip is 125 tokens. That low rate is why a whole conversational turn fits inside a 1,024-token training sample alongside its text.</p>
+    </div>
+    <div class="card" style="--c:var(--full)">
+      <div class="st">Step 0 · go / no-go</div>
+      <h4>We tested it before training anything</h4>
+      <p>The tokenizer was trained on Chinese and English, so it might have merged Somali sounds (c, x, q, dh). 50 Somali clips and 20 Omar clips went audio → tokens → stock decoder → audio, and we listened. The judge's error rose from 0.155 to 0.320 — worse, but unmistakably still Somali. <b>Go.</b></p>
+    </div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section id="trained">
+  <div class="num">03</div>
+  <h2>What we froze, what we trained, and why</h2>
+  <p>Each choice came from one question: where does the missing ability live? Somali is a <em>language</em> ability, so it lives in the LLM. A voice is an <em>acoustic</em> one, so it lives in the decoder.</p>
+
+  <button class="watch" type="button" data-chapter="3"><span class="n">03</span> ▶ Watch this part — how the adapter attaches</button>
+
+  <div class="cards">
+    <div class="card frozen" style="--c:var(--frozen)">
+      <div class="st">Frozen</div>
+      <h4>Speech tokenizer</h4>
+      <ul>
+        <li>Its tokens are already in the LLM's vocabulary, so there was <b>no vocab resize</b> and no new embeddings.</li>
+        <li>Retraining it would change what every token means, which would break both the 9B and the decoder at once.</li>
+      </ul>
+    </div>
+    <div class="card" style="--c:var(--lora)">
+      <div class="st">LoRA · r=64, α=128</div>
+      <h4>GLM-4-Voice 9B</h4>
+      <ul>
+        <li>This is where language lives, and it didn't know Somali.</li>
+        <li>A full fine-tune of 9B needs optimizer state for every weight, far more than one GPU holds. LoRA trains <b>169 M weights (1.7%)</b> and fits in bf16 on one 96 GB card.</li>
+        <li>Adapters on <b>all attention and MLP layers</b> (<code>query_key_value</code>, <code>dense</code>, <code>dense_h_to_4h</code>, <code>dense_4h_to_h</code>). Most language knowledge sits in the MLPs.</li>
+        <li>Rank 64 instead of the usual 8–16, because a new language is a large change, not a style tweak.</li>
+        <li>bf16, not 4-bit QLoRA. We had the memory, and 4-bit costs quality.</li>
+      </ul>
+    </div>
+    <div class="card" style="--c:var(--full)">
+      <div class="st">Full fine-tune</div>
+      <h4>Flow decoder</h4>
+      <ul>
+        <li>The voice is <b>baked into the weights</b>. The config has <code>n_spks: 1</code> and inference always passes a zero speaker embedding, so there's no speaker slot to swap.</li>
+        <li>The flow model is small (~100 M params) and we had 61 h of one speaker, so we trained all of it.</li>
+        <li>The token embedding stays <b>frozen for the first 6,000 steps</b>. That keeps "which token means which sound" fixed while the voice adapts, so content doesn't drift.</li>
+      </ul>
+    </div>
+    <div class="card" style="--c:var(--frozen)">
+      <div class="st">Frozen</div>
+      <h4>HiFT vocoder</h4>
+      <ul>
+        <li>Vocoders generalize across speakers well, and Omar's timbre came out without buzzy artifacts.</li>
+        <li>Retraining it needs HiFi-GAN discriminators that this repo doesn't include.</li>
+        <li>Constraint: our mel spectrograms must match CosyVoice's settings exactly, because this frozen vocoder only understands mels made that way.</li>
+      </ul>
+    </div>
+    <div class="card" style="--c:var(--judge)">
+      <div class="st">Full fine-tune · judge</div>
+      <h4>MMS-1b-all, Somali</h4>
+      <ul>
+        <li>We needed something to score Somali speech. <b>Whisper can't do Somali</b>, so it couldn't be the judge.</li>
+        <li>MMS already has a Somali adapter (CER 0.34 on our test), so it starts well above zero.</li>
+        <li>960 M of 965 M weights trained. Only the CNN feature encoder is frozen: those low-level acoustic filters don't depend on language.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Blending instead of replacing</strong>
+    At merge time <code>--scale</code> multiplies each LoRA module's α/r factor before folding it in: 1.0 is the full adapter, 0.3 is a third of the delta, verified numerically as 0.30× the weight-delta norm. It's a real knob, but it treats a symptom — if a fine-tune has to be dialled down to behave, the training data is usually the actual problem.
+  </div>
+</section>
+
+<!-- 4 -->
+<section id="format">
+  <div class="num">04</div>
+  <h2>Speaking the model's own language</h2>
+  <p>We didn't invent a format. Every training sample uses the <b>exact chat format the demo uses at inference</b>. If training and inference differ by even one token, the model behaves unpredictably. A <code>selftest</code> stage checks that our token IDs match what the demo's own tokenization produces, before any training data is built.</p>
+
+  <button class="watch" type="button" data-chapter="4"><span class="n">04</span> ▶ Watch this part — the 13 : 26 rhythm</button>
+
+  <div class="prompt">
+    <span class="m">[gMASK]&lt;sop&gt;&lt;|system|&gt;\n{system}&lt;|user|&gt;\n{audio or text}&lt;|assistant|&gt;{mode}\n</span><span class="l">{target}&lt;|user|&gt;</span>
+  </div>
+  <div class="keyrow" style="margin-top:8px">
+    <span><i style="background:var(--bg-sunk);border:1px solid var(--border)"></i>prompt: loss masked (−100)</span>
+    <span><i style="background:var(--full-bg);border:1px solid var(--full)"></i>learned</span>
+  </div>
+  <p class="small muted">The final <code>&lt;|user|&gt;</code> is how the model says "my turn is over". If it isn't learned, the model never stops talking. The loss only covers target positions, so we never compute fp32 logits over the 168,960-token vocabulary for the prompt. That saves a lot of memory.</p>
+
+  <h3>The 13 : 26 rhythm</h3>
+  <p>GLM-4-Voice streams: it writes a little text, then the audio for that text, then more text. It was pre-trained with <b>13 text tokens, then 26 audio tokens</b> (about 2 seconds of speech), repeating. We kept that exact ratio, so we teach Somali without re-teaching how streaming works.</p>
+  <div class="strip" id="strip" aria-hidden="true"></div>
+  <div class="keyrow">
+    <span><i style="background:var(--text-tok)"></i>13 text tokens</span>
+    <span><i style="background:var(--audio-tok)"></i>26 audio tokens</span>
+  </div>
+
+  <h3>Tasks built from the same clips</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Task</th><th>User gives</th><th>Model learns to answer with</th><th>Teaches</th><th>Round 3</th></tr></thead>
+    <tbody>
+      <tr><td><b>ASR</b></td><td>Somali audio tokens</td><td>Somali text</td><td>Understanding Somali speech</td><td style="color:var(--good)">kept</td></tr>
+      <tr><td><b>TTS</b></td><td>"Si cod ah u akhri qoraalkan: …" <span class="muted">("Read this aloud")</span></td><td>Interleaved text and audio</td><td>Which sounds go with which Somali words</td><td style="color:var(--good)">kept</td></tr>
+      <tr><td><b>Dialogue</b></td><td>Speaker A's turn, as audio</td><td>Speaker B's reply, interleaved</td><td>Continuing a podcast conversation</td><td style="color:var(--bad)">removed</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout oops">
+    <strong>Why dialogue is gone</strong>
+    Rounds 1 and 2 trained on it, and the objective was literally <em>"given what one podcast guest just said, produce what the other guest said next"</em>. Podcast guests agree, interrupt, repeat the last phrase back and change the subject — which is exactly what the round-2 demo did. <a href="#round3">Round 3</a> drops the task entirely with <code>build_sft.py --tasks asr,tts</code>. ASR teaches the model to hear Somali and TTS teaches it to speak Somali; neither says anything about how to behave in a conversation, so the base model's own assistant manners are left alone.
+  </div>
+</section>
+
+<!-- 5 -->
+<section id="tracks">
+  <div class="num">05</div>
+  <h2>Content and voice are trained apart</h2>
+  <p class="lede">Because audio tokens carry what is said and almost nothing about who said it, the two halves of the problem could be trained on different data, in different models, and only meet at inference.</p>
+
+  <button class="watch" type="button" data-chapter="5"><span class="n">05</span> ▶ Watch this part — the two tracks meeting</button>
+
+  <div class="cards">
+    <div class="card" style="--c:var(--lora)">
+      <div class="st">Track A · what is said</div>
+      <h4>Many speakers, one language</h4>
+      <p>Every usable clip from all five channels, from as many voices as possible. Speaker identity is noise here: ASR and TTS never look at the speaker label, so more voices only makes the Somali more robust.</p>
+    </div>
+    <div class="card" style="--c:var(--full)">
+      <div class="st">Track B · how it sounds</div>
+      <h4>One speaker, verified</h4>
+      <p>8,163 clips that ECAPA speaker verification confirms are Omar (≥ 0.55 cosine per clip, ≥ 0.60 median per video). A guest's voice in the training set would blur the result, so two whole videos were dropped.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 6 -->
+<section id="data">
+  <div class="num">06</div>
+  <h2>The data</h2>
+  <p>We never copy audio around. Every clip in the pipeline is just <b>a start and end time inside an episode's <code>clean.flac</code></b> (24 kHz, denoised with DeepFilterNet3, loudness-normalized), cut in memory when needed. The full processed tree is 157 GB and wouldn't fit on the 116 GB of free disk. Streaming slices and keeping only tokens and mels made it work.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>Source</th><th>What</th><th class="n">Size</th><th>Feeds</th></tr></thead>
+    <tbody>
+      <tr><td><b>5 Somali channels</b><br><span class="small muted">AbukarMahdi, adnachannel, arimaheena, as-podcast, astaanmedia</span></td><td>TV and podcast episodes, cut into ~42 s windows and transcribed with speaker labels</td><td class="n">1,097 episodes<br>9,941 windows<br>116.1 h in round 3</td><td>LoRA, MMS</td></tr>
+      <tr><td><b>Omar</b></td><td>A single-host Somali podcast, already cut into clips, per-clip transcripts</td><td class="n">8,163 clips kept<br>61.1 h</td><td>Flow decoder</td></tr>
+      <tr><td><b>Single-speaker re-cuts</b></td><td>2–20 s one-speaker clips cut from the windows and re-transcribed on their own</td><td class="n">27,304 kept<br>48.1 h</td><td>MMS</td></tr>
+      <tr><td><b>IbrahimDayax</b><br><span class="small muted">public HF dataset, pinned revision</span></td><td>Read and synthetic Somali speech with clean text</td><td class="n">~4.8 h</td><td>MMS, plus a clean test set</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Two transcriptions of the same windows</h3>
+  <p>The transcripts are the text source of truth for everything, and the first ones were the project's biggest problem (<a href="#oops">more below</a>).</p>
+  <div class="cards">
+    <div class="card" style="--c:var(--bad)">
+      <div class="st">Round 1 labels</div>
+      <h4>MAI-Transcribe-2</h4>
+      <p>Microsoft's model via OpenRouter. It <b>doesn't support Somali</b>. With auto language detection it often guessed Urdu, Estonian, Arabic or English, and some windows came back in Arabic or even Japanese script.</p>
+    </div>
+    <div class="card" style="--c:var(--good)">
+      <div class="st">Rounds 2 and 3 labels</div>
+      <h4>ElevenLabs Scribe v2, forced <code>som</code></h4>
+      <p>Real Somali on every clip we tested. 7,983 windows pass the Somali check (88.5 h), 1,066 came back empty (music-heavy), 892 fail. It cost about 140,000 credits, roughly <b>$25 for 110 h</b>, or 23 cents an audio hour.</p>
+    </div>
+  </div>
+
+  <h3>From windows to training samples</h3>
+  <div class="funnel">
+    <div class="flab">Round 3 build (<code>somali_tts6</code>, <code>--no-pairs</code>)</div>
+    <div class="frow" style="--c:var(--lora)"><span class="lab">Clean segments, all windows kept</span><span class="bar"><b style="width:100%"></b></span><span class="v">116.1 h</span></div>
+    <div class="frow" style="--c:var(--bad)"><span class="lab">If we had kept <code>--max-speakers 1</code></span><span class="bar"><b style="width:36.3%"></b></span><span class="v">42.2 h</span></div>
+    <div class="frow" style="--c:var(--frozen)"><span class="lab">Turns and dialogue pairs</span><span class="bar"><b style="width:0%"></b></span><span class="v">none</span></div>
+  </div>
+  <p class="small muted">Only the 95% train split is counted. Earlier builds, for comparison: round 1 (MAI) 57.2 h of segments and 25,795 pairs; round 2 (Scribe relabel) 51.5 h and 22,498 pairs.</p>
+
+  <div class="callout oops">
+    <strong>A filter that cost 78 hours</strong>
+    Round 3 was first built with <code>--max-speakers 1</code>, dropping every window the diarizer heard two voices in — a third of the data survived. Then we checked what those windows actually contain: <b>Scribe emits no overlapping segments at all</b> (0.0 h of overlap across the whole corpus). "Two speakers" means two people taking turns inside one window, and every individual clip is still a single voice. The filter was throwing away <b>78.1 h of clean single-voice audio</b> for no benefit, since ASR and TTS never read the speaker label.
+  </div>
+
+  <div class="tw"><table>
+    <thead><tr><th>Filter on every clip</th><th>Value</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Duration</td><td>0.8–20 s</td><td>Too short carries no content, too long exceeds the LLM sample length</td></tr>
+      <tr><td>Characters per second</td><td>3–30</td><td>Catches text that doesn't match the audio (hallucinated or missing)</td></tr>
+      <tr><td>Overlap dedupe</td><td>&gt; 50%</td><td>The transcriber sometimes repeated a time span with corrected spelling. Keep the later one</td></tr>
+      <tr><td>Speaker verification (Omar)</td><td>ECAPA cosine ≥ 0.55 per clip, ≥ 0.60 per video</td><td>Guests or quoted clips would blur the voice. Two whole videos were dropped: one was a Namibian president, the other a different host</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout">
+    <strong>Honest splits</strong>
+    Train, val and test are split by <b>whole episode</b> (95 / 3 / 2) using a SHA-1 hash of the episode name, never by clip. If clips from one episode landed on both sides, the model could recognize the room, the voices and the topic, and scores would look better than they are. Because it's a hash, every build shares the <em>same</em> test episodes, so results stay comparable across rounds.
+  </div>
+
+  <div class="tw"><table>
+    <thead><tr><th>LoRA build</th><th class="n">ASR</th><th class="n">TTS</th><th class="n">Dialogue</th><th class="n">Total samples</th><th class="n">Tokens</th></tr></thead>
+    <tbody>
+      <tr><td>Round 1 (MAI labels)</td><td class="n">69,805</td><td class="n">69,805</td><td class="n">25,795</td><td class="n">165,405</td><td class="n">20.3 M</td></tr>
+      <tr><td>Round 2 (Scribe relabel)</td><td class="n">84,569</td><td class="n">84,569</td><td class="n">22,498</td><td class="n">191,636</td><td class="n">20.6 M</td></tr>
+      <tr><td><b>Round 3 (full Scribe set)</b></td><td class="n">168,642</td><td class="n">168,642</td><td class="n">0</td><td class="n"><b>337,284</b></td><td class="n"><b>36.0 M</b></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- 7 -->
+<section id="rounds">
+  <div class="num">07</div>
+  <h2>Training rounds, in order</h2>
+  <p>Each step had a reason to come before the next. We checked the audio stack first, built a judge, trained the voice (it was cheap), then trained the language — twice over, before the demo told us what was actually wrong.</p>
+
+  <div class="tl">
+    <div class="ev" style="--c:var(--frozen)">
+      <div class="when">Step 0 · go / no-go</div>
+      <h4>Can the frozen audio stack even carry Somali?</h4>
+      <p>A LoRA on the LLM can't fix a tokenizer that loses Somali sounds. So before any training, 50 random Somali clips and 20 Omar clips went through tokenizer → stock decoder and back, and we listened. It was intelligible. The judge's error went from 0.155 on the original audio to 0.320 on the resynthesized version: worse, but clearly still Somali. <b>Go.</b></p>
+      <div class="kv"><span>check_resynthesis.py</span><span>50 + 20 clips</span></div>
+    </div>
+    <div class="ev" style="--c:var(--judge)">
+      <div class="when">Round · MMS judge</div>
+      <h4>Build a Somali ear</h4>
+      <p>Full CTC fine-tune of MMS-1b-all on 62 h (our segments plus IbrahimDayax). 3 epochs, 7,152 steps, about 65 minutes. We kept the best-CER checkpoint.</p>
+      <div class="kv"><span>lr 3e-5</span><span>batch 16×2</span><span>CER 0.341 → 0.208</span><span>ext test 0.100 → 0.056</span></div>
+    </div>
+    <div class="ev" style="--c:var(--full)">
+      <div class="when">Track B · flow decoder</div>
+      <h4>Give it Omar's voice</h4>
+      <p>30,000 steps at a low learning rate: adapting a voice, not learning from scratch. Batches are sized by mel frames (24,000, about 280 s of audio) instead of clip count, which keeps memory constant as clip lengths vary. Resynthesized Somali became <em>more</em> intelligible in Omar's voice than in the stock voice.</p>
+      <div class="kv"><span>lr 3e-5</span><span>30k steps</span><span>embedding frozen 6k</span><span>val loss 0.950 → 0.573</span><span>resynth CER 0.320 → 0.281</span></div>
+    </div>
+    <div class="ev" style="--c:var(--lora)">
+      <div class="when">Track A · LoRA round 1</div>
+      <h4>Teach the 9B Somali, with noisy labels</h4>
+      <p>2 epochs over 165k samples built from MAI transcripts. The first A/B against the stock model on held-out episodes: ASR and TTS clearly worked, and dialogue lagged. Published as a private adapter (678 MB).</p>
+      <div class="kv"><span>r 64 · α 128</span><span>lr 1e-4 cosine</span><span>batch 8×8 = 64</span><span>2 epochs</span><span>ASR CER 1.38 → 0.25</span></div>
+    </div>
+    <div class="ev" style="--c:var(--good)">
+      <div class="when">Data fix · Scribe relabel</div>
+      <h4>Replace the transcripts, not the model</h4>
+      <p>After finding how much of the MAI text wasn't Somali, we tested alternatives on its worst clips and relabeled all 9,941 windows with Scribe v2, forcing Somali. Same windows and same file schema, so the pipeline could read either set unchanged.</p>
+      <div class="kv"><span>~$25 for 110 h</span><span>7,983 windows pass</span></div>
+    </div>
+    <div class="ev" style="--c:var(--lora)">
+      <div class="when">Track A · LoRA round 2</div>
+      <h4>Correct round 1 with clean labels</h4>
+      <p>Round 2 loaded round 1's adapter and continued on the Scribe data at half the learning rate for one epoch. The losses did what they were supposed to: ASR −18%, dialogue down at every evaluation, TTS flat (the audio hadn't changed, only the text).</p>
+      <div class="kv"><span>init: round 1 adapter</span><span>lr 5e-5</span><span>1 epoch · 2,994 steps</span><span>ASR val 2.375 → 1.787</span></div>
+    </div>
+    <div class="ev" style="--c:var(--bad)">
+      <div class="when">Reality check · the demo</div>
+      <h4>It sounded right and said nothing useful</h4>
+      <p>Fluent Somali, correct captions — and it <b>echoed the user</b> and produced non-sequiturs. Nothing in the loss curves showed this. The cause wasn't the base model: it was the dialogue objective, r=64 adapters on every projection, two rounds deep.</p>
+      <div class="kv"><span>invisible in training curves</span><span>judge by listening</span></div>
+    </div>
+    <div class="ev now" style="--c:var(--good)">
+      <div class="when">Track A · LoRA round 3 · running now</div>
+      <h4>ASR and TTS only, from the stock model</h4>
+      <p>Dialogue removed, a fresh adapter instead of continuing rounds 1–2 (both of which carried the habit), and the full 116.1 h Scribe set after the index repair. 337,284 samples, 10,540 steps, back to lr 1e-4 for two epochs because this adapter starts from nothing.</p>
+      <div class="kv"><span>--tasks asr,tts</span><span>--no-pairs</span><span>init_adapter unset</span><span>lr 1e-4 cosine</span><span>2 epochs</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 8 -->
+<section id="round3">
+  <div class="num">08</div>
+  <h2>Round 3, live</h2>
+  <p>Healthy run, no errors. Snapshot from 19 September 2026:</p>
+  <div class="prog" role="progressbar" aria-valuenow="1500" aria-valuemin="0" aria-valuemax="10540"><b style="width:14.2%"></b></div>
+  <div class="progmeta"><span>step <b>1,500</b> / 10,540 (14%)</span><span>2 epochs over 337,284 samples</span></div>
+
+  <h3>Per-task validation loss</h3>
+  <p class="small muted">Lower is better. 300 val samples per task, never pooled: one overall loss would hide a task that is lagging. Losses aren't comparable <em>between</em> tasks — TTS predicts audio tokens, which is much harder than text.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Step</th><th class="n">ASR</th><th class="n">TTS</th></tr></thead>
+    <tbody>
+      <tr><td>500</td><td class="n">2.414</td><td class="n">5.164</td></tr>
+      <tr><td>1,000</td><td class="n">2.164</td><td class="n">4.384</td></tr>
+      <tr><td>1,500</td><td class="n best">2.057</td><td class="n best">4.153</td></tr>
+      <tr><td class="muted">round 1 final, for reference</td><td class="n muted">2.375</td><td class="n muted">3.622</td></tr>
+      <tr><td class="muted">round 2 final, for reference</td><td class="n muted">1.787</td><td class="n muted">3.420</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout why">
+    <strong>Reading it</strong>
+    At step 1,500 of 10,540, ASR has already passed round 1 and is closing on round 2. TTS is still above both, which is expected this early: it is the harder objective and this adapter started from zero, where rounds 1 and 2 each inherited the one before. The number to judge is the demo, not the curve — that is the lesson round 2 taught.
+  </div>
+
+  <h3>One setting worth measuring</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Gradient checkpointing</th><th class="n">Seconds / step</th><th class="n">GPU memory</th><th>When</th></tr></thead>
+    <tbody>
+      <tr><td><code>SO_GRAD_CKPT=1</code> (default)</td><td class="n">2.27</td><td class="n">31 GB</td><td>Small cards, or long samples</td></tr>
+      <tr><td><code>SO_GRAD_CKPT=0</code></td><td class="n best">1.54</td><td class="n">77 GB</td><td>This run: 97 GB card, so there is room</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small muted">Checkpointing recomputes activations instead of storing them. Turning it off on a card with headroom is a free 32% cut in wall-clock time.</p>
+</section>
+
+<!-- 9 -->
+<section id="results">
+  <div class="num">09</div>
+  <h2>Before and after</h2>
+  <p>Real outputs from the round-1 first pass on held-out test episodes (<code>first_pass.py</code>). Stock GLM-4-Voice vs the Somali LoRA, both voiced through Omar's decoder.</p>
+
+  <h3>Understanding: ASR</h3>
+  <div class="ex">
+    <div class="h"><span>Transcribe this Somali clip</span><span>mean CER 1.378 → 0.248</span></div>
+    <div class="r"><span class="k">Reference</span><span class="v">Hadda fadhiga leed waxa leh ku marsiyooneysa, maxaa kaa qaldan?</span></div>
+    <div class="r stock"><span class="k">Stock</span><span class="v">"Ad" means "and" in Somali. So, "ad football" means "and football."… <small>(CER 2.61)</small></span></div>
+    <div class="r ours"><span class="k">LoRA</span><span class="v">Hadda fadhiga leed, waxa la ku marsiyoonaysaa maxaa kaa qaldan? <small>(CER 0.07)</small></span></div>
+  </div>
+  <p class="small muted">Stock CER is above 1 because the stock model often answered with long text in other languages (Kurdish, Arabic, English) instead of transcribing.</p>
+
+  <h3>Speaking: TTS</h3>
+  <div class="ex">
+    <div class="h"><span>"Si cod ah u akhri qoraalkan: …" (read this aloud)</span></div>
+    <div class="r"><span class="k">Input</span><span class="v">Inan ku leh farriinta walaalkey insha Allah way gaali jabi.</span></div>
+    <div class="r stock"><span class="k">Stock</span><span class="v">Waaqitaan kale, inan ku leh farriinta walaalkey insha Allah way gaali jabi. Waaqitaan kale, inan ku leh… <small>(adds words, repeats itself)</small></span></div>
+    <div class="r ours"><span class="k">LoRA</span><span class="v">Inan ku leh farriinta walaalkey insha Allah way gaali jabi. <small>(exact, then stops)</small></span></div>
+  </div>
+
+  <h3>Conversation: the weak spot, and why it was dropped</h3>
+  <div class="ex">
+    <div class="h"><span>Held-out user turn, spoken</span></div>
+    <div class="r"><span class="k">User</span><span class="v">Maxay tahay? Sheekada.</span></div>
+    <div class="r stock"><span class="k">Stock</span><span class="v">嘿，你好！有什么我可以帮你的吗？… <small>(answers in Chinese)</small></span></div>
+    <div class="r"><span class="k">Round 1</span><span class="v" style="color:var(--audio-tok)">Waa, waa, waa, waa. Waa, waa, waa. <small class="muted">(Somali, but stuck on filler)</small></span></div>
+    <div class="r"><span class="k">Round 2</span><span class="v" style="color:var(--bad)">Fluent Somali that repeats the user's phrase back and changes the subject.</span></div>
+  </div>
+  <div class="callout oops">
+    <strong>Honest status</strong>
+    Clean labels fixed the language and not the behaviour. Round 1 collapsed into backchannel filler ("waa, waa"); round 2 spoke properly and still didn't answer. Both were trained to continue a podcast, which is what they did. Round 3's dialogue score will be whatever the base model's assistant behaviour gives us, speaking Somali — that is the bet.
+  </div>
+
+  <h3>The voice: resynthesis intelligibility</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Clips (judge: fine-tuned MMS, CER)</th><th class="n">Original audio</th><th class="n">Stock voice</th><th class="n">Omar voice</th></tr></thead>
+    <tbody>
+      <tr><td>50 random Somali clips</td><td class="n">0.155</td><td class="n">0.320</td><td class="n best">0.281</td></tr>
+      <tr><td>20 held-out Omar clips</td><td class="n">0.327</td><td class="n">0.417</td><td class="n best">0.410</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small muted">The target was "don't get worse than stock" while changing the voice. It got slightly better.</p>
+
+  <h3>The judge: MMS Somali</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Test set</th><th class="n">Stock CER / WER</th><th class="n">Fine-tuned CER / WER</th><th class="n">CER drop</th></tr></thead>
+    <tbody>
+      <tr><td>Our test episodes (1,543 clips)</td><td class="n">0.341 / 0.788</td><td class="n best">0.208 / 0.604</td><td class="n">−39%</td></tr>
+      <tr><td>Our val episodes (2,622 clips)</td><td class="n">0.343 / 0.796</td><td class="n best">0.204 / 0.596</td><td class="n">−41%</td></tr>
+      <tr><td>IbrahimDayax test (795 clips)</td><td class="n">0.100 / 0.396</td><td class="n best">0.056 / 0.226</td><td class="n">−44%</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small muted">Our test labels are MAI text, which is itself noisy, so part of that 0.208 is the label's fault. IbrahimDayax, with clean human text, is the more trustworthy number — and it improved just as much.</p>
+</section>
+
+<!-- 10 -->
+<section id="oops">
+  <div class="num">10</div>
+  <h2>What went wrong, and what we learned</h2>
+  <p>The bugs were the most useful part of this project, so they're all listed here.</p>
+
+  <div class="oops">
+    <div class="oop">
+      <div class="ic">1</div>
+      <div>
+        <h4>We labeled a Somali corpus with a model that doesn't speak Somali</h4>
+        <p>The whole first round of transcripts came from MAI-Transcribe-2 with auto language detection. Many windows were real Somali, many weren't: Urdu, Estonian, Arabic script, even Japanese. Round-1 LoRA and MMS both trained on this text, and it was also the test reference.</p>
+        <div class="fix"><b>Fix:</b> tested alternatives on MAI's worst clips. Meta's Muse ignored <code>language=so</code> and replied in Arabic script. Scribe v2 with auto detection still misfired (English, Arabic, Portuguese, Finnish). <b>Scribe v2 with Somali forced</b> returned Somali on every clip, so we relabeled everything with it.</div>
+      </div>
+    </div>
+    <div class="oop">
+      <div class="ic">2</div>
+      <div>
+        <h4>We taught it to continue a conversation, then wondered why it wouldn't answer one</h4>
+        <p>Round 2 spoke fluent Somali with correct captions, echoed the user and answered beside the point. The dialogue objective was "given what one guest said, produce what the other said next" — 22–35 k pairs of it, rank-64 adapters on every projection, two rounds deep. Podcast guests agree, interrupt and change the subject. It learned exactly what we taught it.</p>
+        <div class="fix"><b>Fix:</b> round 3 drops the task (<code>--tasks asr,tts</code>, <code>--no-pairs</code>) and starts from the stock 9B, because rounds 1 and 2 both carry the habit. ASR and TTS teach hearing and speaking; conversational manners are left to the instruction-tuned base.</div>
+      </div>
+    </div>
+    <div class="oop">
+      <div class="ic">3</div>
+      <div>
+        <h4>A "clean data" filter threw away two thirds of the corpus</h4>
+        <p>Round 3 was first built with <code>--max-speakers 1</code>, on the assumption that two-speaker windows meant overlapping voices. Measuring it showed <b>0.0 hours of overlap in the entire corpus</b>: Scribe never emits overlapping segments, and every clip is one voice either way. The filter cost 78.1 h of perfectly good audio.</p>
+        <div class="fix"><b>Lesson:</b> measure the property you think you're filtering on before you filter on it.</div>
+      </div>
+    </div>
+    <div class="oop">
+      <div class="ic">4</div>
+      <div>
+        <h4>Re-transcribing single speakers didn't help, because it was the same model</h4>
+        <p>We cut 44,241 one-speaker clips and sent each to MAI on its own, hoping shorter and cleaner input would help. It was still guessing languages. 27,304 were kept only after an <b>agreement filter</b>: drop a clip when the new text and the old window text disagree by more than 15% CER, because two passes disagreeing usually means a wrong-language guess.</p>
+      </div>
+    </div>
+    <div class="oop">
+      <div class="ic">5</div>
+      <div>
+        <h4>Our test scores were graded against noisy answers</h4>
+        <p>MMS "0.208 CER on our test" is measured against MAI text, so part of that error is the label's fault, not the model's. The IbrahimDayax test set, with clean human text, is the more trustworthy number, and it improved just as much (−44%).</p>
+        <div class="fix"><b>Next:</b> retrain on Scribe labels and score against Scribe test labels.</div>
+      </div>
+    </div>
+    <div class="oop">
+      <div class="ic">6</div>
+      <div>
+        <h4>Two demo bugs that no loss curve could show</h4>
+        <p><b>Greedy decoding:</b> <code>model_server.py</code> called <code>generate()</code> without <code>do_sample=True</code>, so the temperature and top-p it was handed were silently ignored. Every reply was the argmax path, and a model fine-tuned on short turns loops that way ("Waa yahay. Waa yahay. …"). <b>The wrong system prompt:</b> <code>orb_demo.py</code>'s built-in prompt is English, so the Somali model answered in English.</p>
+        <div class="fix"><b>Fix:</b> pass <code>do_sample</code> and a <code>repetition_penalty</code> (default 1.1, <code>GLM_REPETITION_PENALTY</code> to override); <code>GLM_LANG=so</code> selects a Somali prompt and <code>GLM_SYSTEM_PROMPT</code> overrides it. <b>Listen to the model before drawing conclusions about the data.</b></div>
+      </div>
+    </div>
+    <div class="oop">
+      <div class="ic">7</div>
+      <div>
+        <h4>"Omar's" clips weren't all Omar</h4>
+        <p>Among the videos were a clip of the Namibian president, another host, and an Arabic poetry recitation. Training the voice on those would have blurred it.</p>
+        <div class="fix"><b>Fix:</b> ECAPA speaker verification against Omar's median voice print, per clip and per video.</div>
+      </div>
+    </div>
+    <div class="oop">
+      <div class="ic">8</div>
+      <div>
+        <h4>The disk kept running out</h4>
+        <p>157 GB of processed audio vs 116 GB free, and MMS checkpoints at 11 GB each.</p>
+        <div class="fix"><b>Fix:</b> never copy audio (cut from <code>clean.flac</code> in memory), download only the <code>clean.flac</code> of transcribed episodes, delete MMS resume checkpoints once <code>final/</code> exists, check free space before training, and back up runs to a private bucket every 10 minutes.</div>
+      </div>
+    </div>
+    <div class="oop">
+      <div class="ic">9</div>
+      <div>
+        <h4>The small stuff that cost hours</h4>
+        <p>A bucket sync that stalled while matching 300k paths (fixed with 16 parallel direct copies). Audio prep running at 27 clips/s (fixed with raw int16 bytes and GPU resampling: about 100× faster Arrow writes, at half the size). <code>datasets</code> 2.18 refusing to save empty splits. Trainer resume breaking on torch ≥ 2.6 until numpy types were allowlisted in <code>rng_state.pth</code>. Audio token IDs that had to stay inside the tokenizer's string range.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 11 -->
+<section id="switched">
+  <div class="num">11</div>
+  <h2>What we swapped out</h2>
+  <p>Components we replaced along the way, and why.</p>
+  <div class="swbox">
+    <div class="switch"><span class="from">MAI-Transcribe-2 (auto language)</span><span class="ar">→</span><span class="to">ElevenLabs Scribe v2, <code>som</code> forced</span><span class="why">The labeler has to actually support the language. See above.</span></div>
+    <div class="switch"><span class="from">Whisper as the intelligibility judge</span><span class="ar">→</span><span class="to">Fine-tuned MMS-1b-all (Somali)</span><span class="why">Whisper can't transcribe Somali. MMS has a Somali head, and fine-tuning it made it a much better judge.</span></div>
+    <div class="switch"><span class="from">Dialogue-pair training</span><span class="ar">→</span><span class="to">ASR + TTS only</span><span class="why">Conversation continuation isn't question answering. The base model already knows how to be an assistant; it only needed the language.</span></div>
+    <div class="switch"><span class="from">Stock flow decoder voice</span><span class="ar">→</span><span class="to">Omar flow decoder (drop-in <code>flow.pt</code>)</span><span class="why">Same architecture and file. Only the weights change, so inference code is untouched.</span></div>
+    <div class="switch"><span class="from">torch 2.3 (upstream pins)</span><span class="ar">→</span><span class="to">torch / torchaudio 2.9.1 + cu128</span><span class="why">The RTX PRO 6000 is Blackwell (sm_120). torch 2.3 has no kernels for it.</span></div>
+    <div class="switch"><span class="from">QLoRA (4-bit base)</span><span class="ar">→</span><span class="to">bf16 LoRA</span><span class="why">With 96 GB there was no need to quantize. bf16 has better quality and no dequantization overhead. QLoRA stays as a fallback for small cards.</span></div>
+    <div class="switch"><span class="from">torchaudio file I/O</span><span class="ar">→</span><span class="to">soundfile</span><span class="why">torchaudio 2.9 needs torchcodec to read audio. A shim also keeps speechbrain (ECAPA) working.</span></div>
+    <div class="switch"><span class="from">torchvision, deepspeed in the training image</span><span class="ar">→</span><span class="to">removed</span><span class="why">torchvision had an ABI mismatch with torch 2.9. deepspeed broke accelerate without <code>CUDA_HOME</code>. Neither was needed.</span></div>
+    <div class="switch"><span class="from">Demo decoder: 10 Euler steps × 2 guidance passes</span><span class="ar">→</span><span class="to">6 steps, guidance batched</span><span class="why">For the live voice-orb demo: 333 → 108 ms per chunk, with the mel within ~1% of the 10-step output.</span></div>
+  </div>
+</section>
+
+<!-- 12 -->
+<section id="next">
+  <div class="num">12</div>
+  <h2>What's next</h2>
+  <div class="cards">
+    <div class="card" style="--c:var(--lora)"><div class="st">Now</div><h4>Finish LoRA round 3</h4><p>Then the first-pass A/B on the same held-out episodes — and, more importantly, a listen through the demo to see whether dropping dialogue actually bought back the assistant behaviour.</p></div>
+    <div class="card" style="--c:var(--judge)"><div class="st">Next</div><h4>MMS on clean labels</h4><p><code>asr_mms_ss</code> adds the agreement-filtered single-speaker clips. It gets published only if it beats the current judge on both test sets, then gets scored against Scribe text.</p></div>
+    <div class="card" style="--c:var(--full)"><div class="st">Then</div><h4>End to end</h4><p>9B + Somali LoRA → audio tokens → Omar's decoder → HiFT, streaming in the voice demo.</p></div>
+    <div class="card" style="--c:var(--frozen)"><div class="st">Maybe</div><h4>Real Somali instruction data</h4><p>If round 3 answers but sounds stiff, the fix is instruction data spoken through the TTS path — not more podcast transcript. Plus a hand-checked test set of ~200 clips, so behaviour has a number too.</p></div>
+  </div>
+
+  <h3>Where it all lives</h3>
+  <div class="tw"><table>
+    <thead><tr><th>What</th><th>Where</th></tr></thead>
+    <tbody>
+      <tr><td>Code, one script per stage</td><td><code>finetune/</code>, run with <code>finetune/run.sh &lt;stage&gt;</code></td></tr>
+      <tr><td>Hyperparameters</td><td><code>finetune/configs/*.yaml</code></td></tr>
+      <tr><td>The film</td><td><code>docs/anim/scenes.py</code> (<a href="https://www.manim.community/">Manim</a>) · narration in <code>docs/anim/narration.py</code>, voiced by <code>narrate.sh</code> · both joined by <code>docs/anim/render.sh</code></td></tr>
+      <tr><td>Deeper write-ups</td><td><a href="DATA_GUIDE.md">DATA_GUIDE.md</a> · <a href="LORA_SOMALI_PLAN.md">LORA_SOMALI_PLAN.md</a> · <code>finetune/mms/README.md</code></td></tr>
+      <tr><td>Models (private)</td><td><code>lewenberg/glm-4-voice-9b-somali-lora</code> · <code>lewenberg/glm-4-voice-decoder-omar</code> · <code>lewenberg/mms-1b-somali</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+</main>
+</div>
+
+<footer><div class="in">
+  Built on <a href="https://github.com/THUDM/GLM-4-Voice">THUDM/GLM-4-Voice</a>, CosyVoice, and Meta's MMS. Animations made with <a href="https://www.manim.community/">Manim Community</a>. Numbers are from the runs on 19 September 2026.
+</div></footer>
+
+<script type="application/json" id="chapter-data">{"total":131.85,"chapters":[{"scene":"S1Pipeline","title":"The chain","start":0.0},{"scene":"S2Tokenizer","title":"The tokenizer","start":25.3},{"scene":"S4LoRA","title":"The adapter","start":51.45},{"scene":"S3Interleave","title":"The format","start":80.4},{"scene":"S5Voice","title":"Two tracks","start":105.85}]}</script>
+<script>
+(function(){
+  var root=document.documentElement;
+
+  function effectiveTheme(){
+    var set=root.getAttribute('data-theme');
+    if(set) return set;
+    return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+  }
+
+  /* ---- the film: one narrated mp4 per theme, with chapters ---- */
+  var film=document.getElementById('film');
+  var video=film.querySelector('video');
+  var chapters=JSON.parse(document.getElementById('chapter-data').textContent).chapters;
+  var chapbar=document.getElementById('chapters');
+  var nowplaying=document.getElementById('nowplaying');
+  var clock=document.getElementById('clock');
+
+  function loadFilm(theme){
+    if(video.dataset.theme===theme) return;
+    var at=video.currentTime, was=!video.paused;
+    video.dataset.theme=theme;
+    video.poster=film.dataset.src+'.'+theme+'.jpg';
+    video.src=film.dataset.src+'.'+theme+'.mp4';
+    // preload is "none", so nothing would load until the next play(): ask for it
+    // ourselves when there is a position to restore
+    if(was || at) video.load();
+    video.addEventListener('loadedmetadata',function once(){
+      video.removeEventListener('loadedmetadata',once);
+      if(at) try{video.currentTime=at;}catch(e){}
+      // the load itself can abort an immediate play(), so ask again a tick later
+      if(was) setTimeout(function(){video.play().catch(function(){});},80);
+    });
+  }
+
+  function mmss(t){
+    t=Math.max(0,Math.floor(t||0));
+    return Math.floor(t/60)+':'+String(t%60).padStart(2,'0');
+  }
+
+  function seekTo(i){
+    var target=chapters[i].start;
+    var go=function(){
+      // a cold <video> can snap back to 0 while it finishes buffering, so the
+      // jump is re-applied for a moment after the first attempt
+      var fix=function(){ if(Math.abs(video.currentTime-target)>0.5) video.currentTime=target; };
+      fix();
+      video.play().catch(function(){});
+      setTimeout(fix,250); setTimeout(fix,900);
+    };
+    if(video.readyState>=2) go();
+    else { video.addEventListener('canplay',function once(){
+             video.removeEventListener('canplay',once); go();
+           }); video.load(); }
+  }
+
+  chapters.forEach(function(c,i){
+    var b=document.createElement('button');
+    b.type='button';
+    b.innerHTML='<span class="n">'+String(i+1).padStart(2,'0')+'</span>'+c.title;
+    b.addEventListener('click',function(){seekTo(i);});
+    chapbar.appendChild(b);
+  });
+
+  function current(){
+    var t=video.currentTime, k=0;
+    for(var i=0;i<chapters.length;i++) if(t>=chapters[i].start-0.01) k=i;
+    return k;
+  }
+  function paint(){
+    var k=current(), btns=chapbar.children;
+    for(var i=0;i<btns.length;i++) btns[i].classList.toggle('on',i===k && !video.paused);
+    nowplaying.textContent=String(k+1).padStart(2,'0')+' · '+chapters[k].title;
+    clock.textContent=mmss(video.currentTime)+(video.duration?' / '+mmss(video.duration):'');
+    film.classList.toggle('playing',!video.paused);
+    film.querySelector('.pp').textContent=video.paused?'Play':'Pause';
+  }
+  video.addEventListener('timeupdate',paint);
+  video.addEventListener('play',paint);
+  video.addEventListener('pause',paint);
+  video.addEventListener('loadedmetadata',paint);
+
+  film.querySelector('.big').addEventListener('click',function(){video.play().catch(function(){});});
+  film.querySelector('.pp').addEventListener('click',function(){
+    if(video.paused) video.play().catch(function(){}); else video.pause();
+  });
+  film.querySelector('.rp').addEventListener('click',function(){seekTo(0);});
+
+  /* "watch this part" buttons further down the page */
+  [].slice.call(document.querySelectorAll('.watch')).forEach(function(b){
+    b.addEventListener('click',function(){
+      film.scrollIntoView({behavior:'smooth',block:'center'});
+      seekTo(Math.min(chapters.length-1, parseInt(b.dataset.chapter,10)-1));
+    });
+  });
+
+  /* pause the film when it scrolls out of sight — it is narrated, not ambient */
+  if('IntersectionObserver' in window){
+    new IntersectionObserver(function(es){
+      es.forEach(function(e){ if(!e.isIntersecting && !video.paused) video.pause(); });
+    },{threshold:0.15}).observe(film);
+  }
+
+  loadFilm(effectiveTheme());
+  paint();
+
+  /* ---- theme toggle (remembered per browser if storage is available) ---- */
+  var btn=document.getElementById('theme');
+  try{var s=localStorage.getItem('theme'); if(s) root.setAttribute('data-theme',s);}catch(e){}
+  loadFilm(effectiveTheme());
+  btn.addEventListener('click',function(){
+    var next=effectiveTheme()==='dark'?'light':'dark';
+    root.setAttribute('data-theme',next);
+    try{localStorage.setItem('theme',next);}catch(e){}
+    loadFilm(next);
+  });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){
+    if(!root.getAttribute('data-theme')) loadFilm(effectiveTheme());
+  });
+
+  /* ---- 13:26 token strip ---- */
+  var strip=document.getElementById('strip'), html='';
+  for(var r=0;r<3;r++){
+    for(var i=0;i<13;i++) html+='<i class="t"></i>';
+    for(var j=0;j<26;j++) html+='<i class="a"></i>';
+    html+='<i class="gap"></i>';
+  }
+  strip.innerHTML=html;
+
+  /* ---- scroll-spy ---- */
+  var links=[].slice.call(document.querySelectorAll('nav.toc a'));
+  var map={}; links.forEach(function(a){map[a.getAttribute('href').slice(1)]=a;});
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(e){
+        if(e.isIntersecting){links.forEach(function(a){a.classList.remove('on');}); var a=map[e.target.id]; if(a) a.classList.add('on');}
+      });
+    },{rootMargin:'-30% 0px -60% 0px'});
+    document.querySelectorAll('main section').forEach(function(s){io.observe(s);});
+  }
+})();
+</script>
+</body>
+</html>

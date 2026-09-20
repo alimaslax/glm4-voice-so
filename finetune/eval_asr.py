@@ -11,7 +11,7 @@ import json
 import numpy as np
 import torch
 
-from common import WORK, log
+from common import ASR_DIR, WORK, log
 
 L = log("eval_asr")
 
@@ -30,10 +30,10 @@ def main():
     model = Wav2Vec2ForCTC.from_pretrained(a.model, target_lang="som", ignore_mismatched_sizes=True).cuda().eval()
     report = {"model": a.model}
     for split in a.splits.split(","):
-        if not (WORK / "asr" / split).exists():
+        if not (ASR_DIR / split).exists():
             L.info("%s: missing, skipped", split)
             continue
-        ds = load_from_disk(str(WORK / "asr" / split))
+        ds = load_from_disk(str(ASR_DIR / split))
         if not len(ds):
             L.info("%s: empty, skipped", split)
             continue

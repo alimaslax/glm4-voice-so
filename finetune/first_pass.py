@@ -19,7 +19,7 @@ import numpy as np
 import torch
 
 from common import (ASR_SYSTEM, DECODER_PATH, LLM_PATH, PROCESSED_DIR, SPEECH_SYSTEM, TEXT_SYSTEM,
-                    TTS_INSTRUCTION, WORK, GLMFormat, load_audio, log, read_jsonl)
+                    TTS_INSTRUCTION, SOMALI, WORK, GLMFormat, load_audio, log, read_jsonl)
 
 L = log("first_pass")
 SR = 22050
@@ -92,14 +92,14 @@ def main():
         return text.strip(), wav, len(audio)
 
     # held-out material: test-split clips (with speech tokens) and dialogue pairs
-    clips = {r["id"]: r for r in read_jsonl(WORK / "somali" / "manifest.jsonl") if r["split"] == "test"}
-    for f in sorted((WORK / "somali" / "tokens").glob("*.jsonl")):
+    clips = {r["id"]: r for r in read_jsonl(SOMALI / "manifest.jsonl") if r["split"] == "test"}
+    for f in sorted((SOMALI / "tokens").glob("*.jsonl")):
         for r in read_jsonl(f):
             if r["id"] in clips:
                 clips[r["id"]]["tokens"] = r["tokens"]
     segs = sorted([c for c in clips.values() if c["kind"] == "segment" and c.get("tokens") and 2 <= c["end"] - c["start"] <= 10],
                   key=lambda c: c["id"])
-    pairs = sorted([pr for pr in read_jsonl(WORK / "somali" / "pairs.jsonl") if pr["split"] == "test"
+    pairs = sorted([pr for pr in read_jsonl(SOMALI / "pairs.jsonl") if pr["split"] == "test"
                     and clips.get(pr["user"], {}).get("tokens") and 1.5 <= clips[pr["user"]]["end"] - clips[pr["user"]]["start"] <= 10],
                    key=lambda pr: pr["user"])
     rng = random.Random(a.seed)

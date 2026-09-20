@@ -1,7 +1,7 @@
 """MMS ASR data: Somali segments -> 16 kHz int16 audio + normalized text, as HF datasets.
 
-Input : $SO_WORK/somali/manifest.jsonl (prepare_somali.py), $SO_DATA/processed/*/*/clean.flac
-Output: $SO_WORK/asr/{train,val,test}   columns: id, audio (raw int16 bytes @16k), text (normalized), text_raw, dur
+Input : $SO_WORK/$SO_SOMALI/manifest.jsonl (prepare_somali.py), $SO_DATA/processed/*/*/clean.flac
+Output: $SO_WORK/$SO_ASR/{train,val,test}   columns: id, audio (raw int16 bytes @16k), text (normalized), text_raw, dur
         (bytes, not a list column: Arrow writes them ~100x faster; readers use np.frombuffer(..., np.int16))
 Text normalization matches what the stock MMS Somali head emits: lowercase, letters/digits/'/-, no punctuation.
 """
@@ -12,7 +12,7 @@ from collections import defaultdict
 import numpy as np
 import torch
 
-from common import PROCESSED_DIR, WORK, load_audio, log, read_jsonl
+from common import ASR_DIR, PROCESSED_DIR, SOMALI, WORK, load_audio, log, read_jsonl
 
 L = log("prepare_asr")
 KEEP = re.compile(r"[^a-z0-9'\- ]")
@@ -44,7 +44,7 @@ def clips(items_by_audio):
 def main():
     from datasets import Dataset, Features, Value
     by_split = {"train": defaultdict(list), "val": defaultdict(list), "test": defaultdict(list)}
-    for r in read_jsonl(WORK / "somali" / "manifest.jsonl"):
+    for r in read_jsonl(SOMALI / "manifest.jsonl"):
         if r["kind"] == "segment":
             by_split[r["split"]][r["audio"]].append(r)
     feats = Features(id=Value("string"), audio=Value("binary"), text=Value("string"),
@@ -54,7 +54,7 @@ def main():
         ds = Dataset.from_generator(clips, gen_kwargs=dict(items_by_audio=items), features=feats,
                                     cache_dir=str(WORK / "cache" / "hf_datasets")) if items else \
             Dataset.from_dict({k: [] for k in feats}, features=feats)
-        ds.save_to_disk(str(WORK / "asr" / split))
+        ds.save_to_disk(str(ASR_DIR / split))
         L.info("%s: %d clips, %.1f h", split, len(ds), sum(ds["dur"]) / 3600 if len(ds) else 0)
 
 

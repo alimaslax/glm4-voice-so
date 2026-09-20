@@ -12,7 +12,7 @@ import soundfile as sf
 import torch
 import yaml
 
-from common import WORK, log
+from common import ASR_DIR, WORK, log
 from prepare_asr import normalize
 
 L = log("prepare_asr_ext")
@@ -59,7 +59,7 @@ def main():
             parts[ours].append(ds)
     for ours, dss in parts.items():
         ds = concatenate_datasets(dss) if dss else Dataset.from_dict({k: [] for k in feats}, features=feats)
-        ds.save_to_disk(str(WORK / "asr" / ours))
+        ds.save_to_disk(str(ASR_DIR / ours))
         L.info("%s: %d clips, %.2f h", ours, len(ds), sum(ds["dur"]) / 3600 if len(ds) else 0)
 
 

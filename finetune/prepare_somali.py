@@ -12,7 +12,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from common import PROCESSED_DIR, TRANSCRIPTS_DIR, WORK, log, split_of, write_jsonl
+from common import PROCESSED_DIR, SOMALI, TRANSCRIPTS_DIR, log, split_of, write_jsonl
 
 L = log("prepare_somali")
 LETTERS = re.compile(r"[A-Za-z]")
@@ -51,6 +51,11 @@ def main():
     p.add_argument("--max-cps", type=float, default=30.0)
     p.add_argument("--merge-gap", type=float, default=1.0, help="merge same-speaker segments closer than this")
     p.add_argument("--pair-gap", type=float, default=3.0, help="max silence between turn A and reply B")
+    # TTS-only rounds keep just clean single-speaker material: no turn/pair rows, and windows the
+    # diarizer found more than one voice in are dropped whole (overlap and mislabelled speakers there
+    # are what poisoned the voice data).
+    p.add_argument("--no-pairs", action="store_true", help="skip turn merging and dialogue pairs")
+    p.add_argument("--max-speakers", type=int, default=0, help=">0: drop windows with more speakers")
     a = p.parse_args()
 
     clips, pairs, stats = [], [], Counter()
@@ -75,6 +80,9 @@ def main():
             if not resp.exists():
                 stats["window_missing_response"] += 1
                 continue
+            if a.max_speakers and len(w.get("speakers", [])) > a.max_speakers:
+                stats["window_too_many_speakers"] += 1
+                continue
             off = float(w["offset_seconds"])
             raw = [dict(start=float(s["start"]), end=float(s["end"]), text=clean_text(s.get("text")),
                         speaker=s.get("speaker", 0))
@@ -95,6 +103,9 @@ def main():
                     stats["segments_kept"] += 1
                 else:
                     stats["segments_filtered"] += 1
+
+            if a.no_pairs:
+                continue
 
             # merged speaker turns -> dialogue pairs
             turns = []
@@ -124,7 +135,7 @@ def main():
     # a turn can appear in two pairs (as reply, then as prompt): keep one row per id
     uniq = {c["id"]: c for c in clips}
     clips = sorted(uniq.values(), key=lambda c: (c["audio"], c["start"]))
-    out = WORK / "somali"
+    out = SOMALI
     write_jsonl(out / "manifest.jsonl", clips)
     write_jsonl(out / "pairs.jsonl", pairs)
     hours = Counter()

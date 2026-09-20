@@ -164,7 +164,8 @@ The next commit adds the Somali LoRA adapter trained on top of it.
         (d / "README.md").write_text(card("GLM-4-Voice-9B, Somali LoRA", f"""
 LoRA adapter (PEFT) for `THUDM/glm-4-voice-9b` (see tag `base`), trained in bf16 on Somali speech:
 ASR (speech -> Somali text), TTS-style (Somali text -> speech tokens) and speech dialogue pairs from
-Somali TV/podcast conversations. Config: `configs/lora_somali.yaml` in the repo below.
+Somali TV/podcast conversations. Config: `configs/{run}.yaml` in the repo below
+({'labels: ElevenLabs Scribe v2 relabel, continued from the round-1 adapter (tag `lora_somali`)' if run != 'lora_somali' else 'labels: microsoft/mai-transcribe-2'}).
 Loss curves / per-task eval losses: `eval/trainer_state.json`.
 
 ```python

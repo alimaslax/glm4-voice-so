@@ -1,0 +1,27 @@
+# Track A, round 2: continue the round-1 adapter on the Scribe v2 relabel (clean Somali text).
+# Run with SO_TRANSCRIPTS=$SO_WORK/scribe SO_SOMALI=somali_scribe (prepare_somali, tokenize_somali, build_sft, train_lora).
+run_name: lora_somali_scribe
+seed: 1234
+init_adapter: runs/lora_somali/final   # start from round 1 (same r/alpha/targets)
+attn_implementation: sdpa        # falls back to eager if the remote code refuses
+lora:
+  r: 64
+  alpha: 128
+  dropout: 0.05
+  target_modules: [query_key_value, dense, dense_h_to_4h, dense_4h_to_h]
+train:
+  num_train_epochs: 1
+  max_steps: -1                  # >0 overrides epochs (smoke tests)
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 8 # effective batch 64
+  learning_rate: 5.0e-5   # half of round 1: refining, not starting over
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  logging_steps: 10
+  eval_steps: 500
+  save_steps: 500
+  save_total_limit: 4
+  dataloader_num_workers: 4
+eval_per_task: 300               # val samples per task for the per-task eval losses

@@ -6,13 +6,14 @@ Output: $SO_WORK/runs/<run_name>/ (checkpoints, tb/), final/ = model + processor
 Re-running resumes from the last checkpoint.
 """
 import argparse
+import os
 from pathlib import Path
 
 import numpy as np
 import torch
 import yaml
 
-from common import allow_trainer_resume, WORK, log
+from common import ASR_DIR, allow_trainer_resume, WORK, log
 
 L = log("train_asr")
 
@@ -67,10 +68,10 @@ def main():
     L.info("trainable params: %d", sum(x.numel() for x in model.parameters() if x.requires_grad))
 
     from datasets import concatenate_datasets
-    parts = [load_from_disk(str(WORK / "asr" / s)) for s in cfg.get("train_splits", ["train"])
-             if (WORK / "asr" / s).exists()]
+    parts = [load_from_disk(str(ASR_DIR / s)) for s in cfg.get("train_splits", ["train"])
+             if (ASR_DIR / s).exists()]
     train = concatenate_datasets([x for x in parts if len(x)]).filter(lambda r: r["dur"] <= cfg["max_dur"])
-    val = load_from_disk(str(WORK / "asr" / "val"))
+    val = load_from_disk(str(ASR_DIR / "val"))
     val = val.shuffle(seed=0).select(range(min(cfg["eval_samples"], len(val)))) if len(val) else None
     L.info("train %d clips (%.1f h), val %s", len(train), sum(train["dur"]) / 3600, len(val) if val else 0)
 
@@ -84,8 +85,11 @@ def main():
         return {"cer": jiwer.cer(ref, hyp), "wer": jiwer.wer(ref, hyp)}
 
     t = cfg["train"]
+    # Recomputing activations saves memory but costs ~25-30% compute; off when the GPU has room (SO_GRAD_CKPT=1 forces on).
+    grad_ckpt = os.environ.get("SO_GRAD_CKPT", str(t.get("gradient_checkpointing", True))).lower() in ("1", "true")
+    L.info("gradient checkpointing: %s", grad_ckpt)
     args = TrainingArguments(
-        output_dir=str(out_dir), run_name=run, seed=cfg["seed"], bf16=True, gradient_checkpointing=True,
+        output_dir=str(out_dir), run_name=run, seed=cfg["seed"], bf16=True, gradient_checkpointing=grad_ckpt,
         num_train_epochs=t["num_train_epochs"], max_steps=t["max_steps"],
         per_device_train_batch_size=t["per_device_train_batch_size"],
         per_device_eval_batch_size=t["per_device_train_batch_size"],

@@ -11,7 +11,7 @@ import argparse
 import random
 from collections import Counter
 
-from common import (ASR_SYSTEM, LLM_PATH, SPEECH_SYSTEM, TEXT_SYSTEM, TTS_INSTRUCTION, WORK, GLMFormat, log,
+from common import (ASR_SYSTEM, LLM_PATH, SOMALI, SPEECH_SYSTEM, TEXT_SYSTEM, TTS_INSTRUCTION, GLMFormat, log,
                     read_jsonl)
 
 L = log("build_sft")
@@ -21,16 +21,19 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--max-len", type=int, default=1024)
     p.add_argument("--seed", type=int, default=1234)
+    p.add_argument("--tasks", default="asr,tts,dialogue", help="comma-separated subset to build")
     a = p.parse_args()
+    tasks = {t.strip() for t in a.tasks.split(",") if t.strip()}
+    L.info("tasks: %s", ",".join(sorted(tasks)))
 
     from datasets import Dataset, Features, Sequence, Value
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(str(LLM_PATH), trust_remote_code=True)
     g = GLMFormat(tok)
 
-    clips = {r["id"]: r for r in read_jsonl(WORK / "somali" / "manifest.jsonl")}
+    clips = {r["id"]: r for r in read_jsonl(SOMALI / "manifest.jsonl")}
     n_tok = 0
-    for f in sorted((WORK / "somali" / "tokens").glob("*.jsonl")):
+    for f in sorted((SOMALI / "tokens").glob("*.jsonl")):
         for r in read_jsonl(f):
             if r["id"] in clips:
                 clips[r["id"]]["tokens"] = r["tokens"]; n_tok += 1
@@ -39,6 +42,8 @@ def main():
     rows, stats = [], Counter()
 
     def add(task, split, prompt, target):
+        if task not in tasks:
+            return
         ids, labels = g.sample(prompt, target)
         if len(ids) > a.max_len:
             stats[f"{task}_too_long"] += 1
@@ -53,7 +58,8 @@ def main():
         add("asr", c["split"], g.prompt(ASR_SYSTEM, g.audio(c["tokens"]), streaming=False), text_ids)
         add("tts", c["split"], g.prompt(TEXT_SYSTEM, g.enc(TTS_INSTRUCTION + c["text"])),
             g.interleave(text_ids, c["tokens"]))
-    for pr in read_jsonl(WORK / "somali" / "pairs.jsonl"):
+    pairs_file = SOMALI / "pairs.jsonl"
+    for pr in (read_jsonl(pairs_file) if "dialogue" in tasks and pairs_file.exists() else []):
         u, r = clips.get(pr["user"]), clips.get(pr["reply"])
         if not (u and r and u.get("tokens") and r.get("tokens")):
             stats["pair_missing_tokens"] += 1
@@ -62,7 +68,7 @@ def main():
             g.interleave(g.enc(r["text"]), r["tokens"]))
 
     random.Random(a.seed).shuffle(rows)
-    out = WORK / "somali" / "sft"
+    out = SOMALI / "sft"
     for split in ("train", "val", "test"):
         part = [{k: v for k, v in r.items() if k != "split"} for r in rows if r["split"] == split]
         feats = Features(input_ids=Sequence(Value("int32")), labels=Sequence(Value("int32")),

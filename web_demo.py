@@ -7,6 +7,7 @@ import uuid
 import requests
 from argparse import ArgumentParser
 
+import soundfile as sf
 import torchaudio
 from transformers import WhisperFeatureExtractor, AutoTokenizer
 from speech_tokenizer.modeling_whisper import WhisperVQEncoder
@@ -166,7 +167,7 @@ if __name__ == "__main__":
         tts_speech = torch.cat(tts_speechs, dim=-1).cpu()
         complete_text = glm_tokenizer.decode(complete_tokens, spaces_between_special_tokens=False)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            torchaudio.save(f, tts_speech.unsqueeze(0), 22050, format="wav")
+            sf.write(f, tts_speech.numpy(), 22050, format="WAV")   # torchaudio.save needs torchcodec in newer torchaudio
         history.append({"role": "assistant", "content": {"path": f.name, "type": "audio/wav"}})
         history.append({"role": "assistant", "content": glm_tokenizer.decode(text_tokens, ignore_special_tokens=False)})
         yield history, inputs, complete_text, '', None, (22050, tts_speech.numpy())

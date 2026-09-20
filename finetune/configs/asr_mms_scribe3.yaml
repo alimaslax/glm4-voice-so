@@ -1,0 +1,29 @@
+# MMS-1b-all Somali ASR, trained FRESH from facebook/mms-1b-all on the Scribe v2 labels (SO_ASR=asr_scribe3) + read-speech extra.
+run_name: asr_mms_scribe3
+base_model: facebook/mms-1b-all
+target_lang: som
+seed: 1234
+mode: full                  # full = all transformer layers + adapters + head (CNN feature encoder frozen)
+                            # adapter = only the Somali adapter layers + head (~2.2M params)
+train:
+  num_train_epochs: 3
+  max_steps: -1
+  per_device_train_batch_size: 16
+  gradient_accumulation_steps: 2
+  learning_rate: 3.0e-5     # use ~1e-3 for mode: adapter
+  warmup_steps: 500
+  lr_scheduler_type: linear
+  weight_decay: 0.0
+  logging_steps: 25
+  eval_steps: 1000
+  save_steps: 1000
+  save_total_limit: 3
+  dataloader_num_workers: 6
+  gradient_checkpointing: false   # ~35 GB GPU headroom on the RTX PRO 6000; ~25-30% faster
+max_dur: 20.0
+keep_checkpoints: false           # delete checkpoint-* (11 GB each) once final/ is saved
+train_splits: [train, ext_train]        # asr_scribe3/: Scribe segments + ext read speech (no MAI labels)
+extra_datasets:                    # prepare_asr_ext.py; revision pinned for repeatability
+  - repo: IbrahimDayax/somali-combined-asr-stt-dataset   # ~4.9 h train, read + synthetic TTS Somali
+    revision: 1f0e15a1b7adb4e343a17e2a5ccdd047fc5ced42
+eval_samples: 1500

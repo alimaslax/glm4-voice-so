@@ -1,0 +1,29 @@
+# MMS round 4: CONTINUE from the round-3 Scribe model on the full final Scribe set (SO_ASR=asr_scribe4), 1 epoch, lower LR.
+run_name: asr_mms_scribe4
+base_model: /workspace/so-train/runs/asr_mms_scribe3/final   # round-3 model + its fine-tuned som adapter
+target_lang: som
+seed: 1234
+mode: full                  # full = all transformer layers + adapters + head (CNN feature encoder frozen)
+                            # adapter = only the Somali adapter layers + head (~2.2M params)
+train:
+  num_train_epochs: 1
+  max_steps: -1
+  per_device_train_batch_size: 16
+  gradient_accumulation_steps: 2
+  learning_rate: 1.5e-5     # half of round 3: refining, not starting over
+  warmup_steps: 200
+  lr_scheduler_type: linear
+  weight_decay: 0.0
+  logging_steps: 25
+  eval_steps: 1000
+  save_steps: 1000
+  save_total_limit: 3
+  dataloader_num_workers: 6
+  gradient_checkpointing: false   # ~35 GB GPU headroom on the RTX PRO 6000; ~25-30% faster
+max_dur: 20.0
+keep_checkpoints: false           # delete checkpoint-* (11 GB each) once final/ is saved
+train_splits: [train, ext_train]        # asr_scribe4/: all final Scribe segments + ext read speech (no MAI labels)
+extra_datasets:                    # prepare_asr_ext.py; revision pinned for repeatability
+  - repo: IbrahimDayax/somali-combined-asr-stt-dataset   # ~4.9 h train, read + synthetic TTS Somali
+    revision: 1f0e15a1b7adb4e343a17e2a5ccdd047fc5ced42
+eval_samples: 1500

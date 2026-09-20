@@ -20,7 +20,9 @@ WORK = Path(os.environ.get("SO_WORK", "/workspace/so-train"))   # everything we 
 MODELS = Path(os.environ.get("SO_MODELS", "/workspace/glm-4-voice/models"))
 
 TRANSCRIPTS_DIR = Path(os.environ.get("SO_TRANSCRIPTS", DATA / "transcripts"))   # bucket mai/ (or scribe/ relabel)
-PROCESSED_DIR = DATA / "processed"                # lewenberg/so-duplex-processed (subset)
+SOMALI = WORK / os.environ.get("SO_SOMALI", "somali")   # Track A manifests/tokens/sft; e.g. somali_scribe for the relabel
+ASR_DIR = WORK / os.environ.get("SO_ASR", "asr")        # MMS datasets; e.g. asr_scribe3 for the Scribe relabel
+PROCESSED_DIR = Path(os.environ.get("SO_PROCESSED", DATA / "processed"))   # lewenberg/so-duplex-processed (subset)
 OMAR_DIR = PROCESSED_DIR / "omar"
 
 LLM_PATH = MODELS / "glm-4-voice-9b"

@@ -1,0 +1,30 @@
+# Track A, round 3: FRESH LoRA (no init_adapter) on Scribe-labelled single-speaker audio only.
+# ASR + TTS tasks, no dialogue: the podcast turn pairs taught the model to continue a conversation
+# (echo the speaker) instead of answering, which is what wrecked the live demo. Keeping only asr/tts
+# teaches Somali sound and spelling and leaves the base 9B's assistant behaviour alone.
+# Run with SO_TRANSCRIPTS=$SO_WORK/scribe_all SO_SOMALI=somali_tts5
+# (prepare_somali --no-pairs --max-speakers 1, tokenize_somali, build_sft --tasks asr,tts, train_lora).
+run_name: lora_somali_tts
+seed: 1234
+attn_implementation: sdpa        # falls back to eager if the remote code refuses
+lora:
+  r: 64
+  alpha: 128
+  dropout: 0.05
+  target_modules: [query_key_value, dense, dense_h_to_4h, dense_4h_to_h]
+train:
+  num_train_epochs: 2            # from scratch again, so the same budget as round 1
+  max_steps: -1                  # >0 overrides epochs (smoke tests)
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 8 # effective batch 64
+  learning_rate: 1.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  logging_steps: 10
+  eval_steps: 500
+  save_steps: 500
+  save_total_limit: 4
+  dataloader_num_workers: 4
+eval_per_task: 300               # val samples per task for the per-task eval losses

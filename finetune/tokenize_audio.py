@@ -12,7 +12,7 @@ from collections import defaultdict
 import numpy as np
 import torch
 
-from common import MEL, OMAR_DIR, PROCESSED_DIR, WORK, load_audio, load_speech_tokenizer, log, read_jsonl, \
+from common import MEL, OMAR_DIR, PROCESSED_DIR, SOMALI, WORK, load_audio, load_speech_tokenizer, log, read_jsonl, \
     speech_tokens, write_jsonl
 
 L = log("tokenize_audio")
@@ -36,11 +36,12 @@ def main():
     a = p.parse_args()
 
     model, fe = load_speech_tokenizer()
-    rows = read_jsonl(WORK / a.corpus / "manifest.jsonl")
+    base = SOMALI if a.corpus == "somali" else WORK / a.corpus
+    rows = read_jsonl(base / "manifest.jsonl")
     groups = defaultdict(list)
     for r in rows:
         groups[r["audio"] if a.corpus == "somali" else r["video"]].append(r)
-    out_dir = WORK / a.corpus / ("tokens" if a.corpus == "somali" else "feats")
+    out_dir = base / ("tokens" if a.corpus == "somali" else "feats")
     out_dir.mkdir(parents=True, exist_ok=True)
     done = 0
     for gi, (key, items) in enumerate(sorted(groups.items())):
